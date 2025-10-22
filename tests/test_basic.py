@@ -70,6 +70,7 @@ def test_block_scalar(tmp_path):
 
     doc = LosslessYAML.load(yaml_file)
     doc.replace_in_values('hello', 'goodbye')
+    doc.save()
     result = yaml_file.read_text()
 
     assert 'goodbye' in result
@@ -93,6 +94,7 @@ outer:
 
     doc = LosslessYAML.load(yaml_file)
     doc.replace_in_values('old_value', 'new_value')
+    doc.save()
     result = yaml_file.read_text()
 
     assert result.count('new_value') == 2

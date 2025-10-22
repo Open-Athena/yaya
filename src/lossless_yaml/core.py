@@ -178,12 +178,12 @@ class LosslessYAML:
                 # Apply same indent to new value
                 new_lines = value.split('\n')
                 indented_lines = []
-                for i, line in enumerate(new_lines):
-                    if i == 0 or not line.strip():
-                        # First line or empty lines
+                for line in new_lines:
+                    if not line.strip():
+                        # Empty lines - preserve as-is
                         indented_lines.append(line)
                     else:
-                        # Add indent
+                        # Add indent to all non-empty lines
                         indented_lines.append(' ' * indent + line)
 
                 return '\n'.join(indented_lines).encode('utf-8')
