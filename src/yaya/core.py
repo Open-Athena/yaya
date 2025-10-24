@@ -1,5 +1,5 @@
 """
-Lossless YAML Editor - Core implementation.
+YAYA - Yet Another YAML AST transformer - Core implementation.
 
 Provides byte-for-byte preservation of YAML files while allowing
 programmatic modifications to values.
@@ -221,12 +221,12 @@ def serialize_to_yaml(value: Any, indent: int = 0, style: str = 'block', list_of
     """
     if list_offset is None:
         # Check environment variable for default
-        env_default = os.environ.get('LOSSLESS_YAML_LIST_OFFSET', '').strip()
+        env_default = os.environ.get('YAYA_LIST_OFFSET', '').strip()
         if env_default:
             try:
                 list_offset = int(env_default)
             except ValueError:
-                warnings.warn(f"Invalid LOSSLESS_YAML_LIST_OFFSET value: {env_default!r}, using offset=2")
+                warnings.warn(f"Invalid YAYA_LIST_OFFSET value: {env_default!r}, using offset=2")
                 list_offset = 2
         else:
             # Default to 2 (GitHub Actions style)
@@ -254,8 +254,8 @@ def serialize_to_yaml(value: Any, indent: int = 0, style: str = 'block', list_of
     return result.rstrip('\n')
 
 
-class LosslessYAML:
-    """Lossless YAML editor that preserves exact bytes."""
+class YAYA:
+    """YAYA - Yet Another YAML AST transformer - preserves exact bytes."""
 
     def __init__(self, original_bytes: bytes, data: Any, file_path: Path | None = None):
         self.original_bytes = original_bytes
@@ -267,8 +267,8 @@ class LosslessYAML:
         self._list_offset_override: int | None = None
 
     @classmethod
-    def load(cls, file_path: str | Path) -> 'LosslessYAML':
-        """Load a YAML file for lossless editing."""
+    def load(cls, file_path: str | Path) -> 'YAYA':
+        """Load a YAML file for editing."""
         path = Path(file_path)
         original_bytes = path.read_bytes()
 
@@ -308,18 +308,18 @@ class LosslessYAML:
             return self._detected_list_offset
 
         # Check for mixed/ambiguous indentation behavior
-        env_behavior = os.environ.get('LOSSLESS_YAML_MIXED_INDENT', 'warn').lower()
+        env_behavior = os.environ.get('YAYA_MIXED_INDENT', 'warn').lower()
         if env_behavior == 'error':
             raise ValueError(
                 "Mixed or ambiguous list indentation detected in document. "
                 "Use doc.set_list_indent_style() to specify explicitly, or set "
-                "LOSSLESS_YAML_LIST_OFFSET environment variable."
+                "YAYA_LIST_OFFSET environment variable."
             )
         elif env_behavior == 'warn':
             warnings.warn(
                 "No consistent list indentation detected in document. "
                 "Defaulting to offset=2 (indented). Use doc.set_list_indent_style() "
-                "to override or set LOSSLESS_YAML_LIST_OFFSET environment variable.",
+                "to override or set YAYA_LIST_OFFSET environment variable.",
                 UserWarning
             )
 

@@ -4,7 +4,7 @@ Based on ISSUE-list-indentation.md
 """
 import pytest
 from pathlib import Path
-from lossless_yaml import LosslessYAML
+from yaya import YAYA
 
 
 def test_list_indentation_inference(tmp_path):
@@ -18,7 +18,7 @@ def test_list_indentation_inference(tmp_path):
         run: echo "test"
 """)
 
-    doc = LosslessYAML.load(yaml_file)
+    doc = YAYA.load(yaml_file)
 
     # Add a new on: trigger with lists
     doc.replace_key("on", {
@@ -52,7 +52,7 @@ jobs:
       - uses: actions/checkout@v4
 """)
 
-    doc = LosslessYAML.load(yaml_file)
+    doc = YAYA.load(yaml_file)
 
     # Insert on: trigger before jobs
     doc.replace_key("on", {
@@ -93,7 +93,7 @@ def test_add_key_after_with_lists(tmp_path):
         run: echo "test"
 """)
 
-    doc = LosslessYAML.load(yaml_file)
+    doc = YAYA.load(yaml_file)
 
     # Add env section with a list-like structure
     doc.add_key_after("jobs.test.runs-on", "strategy", {
@@ -128,7 +128,7 @@ def test_aligned_list_style_detection(tmp_path):
     - two
 """)
 
-    doc = LosslessYAML.load(yaml_file)
+    doc = YAYA.load(yaml_file)
 
     # Should detect offset=0 (aligned)
     assert doc._detected_list_offset == 0
@@ -161,7 +161,7 @@ def test_indented_list_style_detection(tmp_path):
       - two
 """)
 
-    doc = LosslessYAML.load(yaml_file)
+    doc = YAYA.load(yaml_file)
 
     # Should detect offset=2 (indented)
     assert doc._detected_list_offset == 2
@@ -189,7 +189,7 @@ def test_set_list_indent_style_override(tmp_path):
     - foo
 """)
 
-    doc = LosslessYAML.load(yaml_file)
+    doc = YAYA.load(yaml_file)
 
     # Override to use aligned style
     doc.set_list_indent_style('aligned')
@@ -218,7 +218,7 @@ def test_mixed_indentation_warning(tmp_path):
     - bar
 """)
 
-    doc = LosslessYAML.load(yaml_file)
+    doc = YAYA.load(yaml_file)
 
     # Should detect ambiguity
     assert doc._detected_list_offset is None

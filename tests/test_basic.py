@@ -1,9 +1,9 @@
 """
-Basic tests for lossless-yaml.
+Basic tests for yaya.
 """
 import pytest
 from pathlib import Path
-from lossless_yaml import LosslessYAML
+from yaya import YAYA
 
 
 def test_simple_replacement(tmp_path):
@@ -13,7 +13,7 @@ def test_simple_replacement(tmp_path):
 another: keep_this
 """)
 
-    doc = LosslessYAML.load(yaml_file)
+    doc = YAYA.load(yaml_file)
     doc.replace_in_values('old_value', 'new_value')
     doc.save()
 
@@ -31,7 +31,7 @@ key: value  # inline comment
 """
     yaml_file.write_text(original)
 
-    doc = LosslessYAML.load(yaml_file)
+    doc = YAYA.load(yaml_file)
     doc.replace_in_values('value', 'newvalue')
     result = doc.save()
 
@@ -50,7 +50,7 @@ def test_preserves_whitespace(tmp_path):
 """
     yaml_file.write_text(original)
 
-    doc = LosslessYAML.load(yaml_file)
+    doc = YAYA.load(yaml_file)
     doc.replace_in_values('ubuntu', 'debian')
     result = doc.save()
 
@@ -68,7 +68,7 @@ def test_block_scalar(tmp_path):
 """
     yaml_file.write_text(original)
 
-    doc = LosslessYAML.load(yaml_file)
+    doc = YAYA.load(yaml_file)
     doc.replace_in_values('hello', 'goodbye')
     doc.save()
     result = yaml_file.read_text()
@@ -92,7 +92,7 @@ outer:
     - item2: keep
 """)
 
-    doc = LosslessYAML.load(yaml_file)
+    doc = YAYA.load(yaml_file)
     doc.replace_in_values('old_value', 'new_value')
     doc.save()
     result = yaml_file.read_text()
@@ -109,7 +109,7 @@ another: thing
 """
     yaml_file.write_bytes(original.encode())
 
-    doc = LosslessYAML.load(yaml_file)
+    doc = YAYA.load(yaml_file)
     doc.replace_in_values('nonexistent', 'replacement')
     result = doc.save()
 

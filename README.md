@@ -1,4 +1,6 @@
-# lossless-yaml
+# yaya
+
+**Y**et **A**nother **Y**AML **A**ST transformation library
 
 Byte-for-byte preserving YAML editor for programmatic modifications.
 
@@ -11,7 +13,7 @@ Ever need to programmatically edit YAML files but want to preserve:
 - Block scalar indicators (`|`, `|-`, `|+`)
 - Formatting choices
 
-Most YAML libraries (including ruamel.yaml's round-trip mode) make small formatting changes when serializing. `lossless-yaml` solves this by:
+Most YAML libraries (including ruamel.yaml's round-trip mode) make small formatting changes when serializing. `yaya` solves this by:
 
 1. Parsing YAML to get the AST with position information
 2. Keeping the original bytes
@@ -21,7 +23,7 @@ Most YAML libraries (including ruamel.yaml's round-trip mode) make small formatt
 ## Installation
 
 ```bash
-pip install lossless-yaml
+pip install yaya
 ```
 
 ## Usage
@@ -29,10 +31,10 @@ pip install lossless-yaml
 ### Basic String Replacement
 
 ```python
-from lossless_yaml import LosslessYAML
+from yaya import YAYA
 
 # Load a YAML file
-doc = LosslessYAML.load('.github/workflows/test.yaml')
+doc = YAYA.load('.github/workflows/test.yaml')
 
 # Simple string replacement in all values
 doc.replace_in_values('src/marin', 'lib/marin/src/marin')
@@ -106,7 +108,7 @@ database:
 This code:
 
 ```python
-doc = LosslessYAML.load('config.yaml')
+doc = YAYA.load('config.yaml')
 doc.replace_in_values('prod-db-1', 'prod-db-2')
 doc.save()
 ```
@@ -151,7 +153,7 @@ No reformatting. No comment loss. Just the change you made.
 
 `ruamel.yaml` is excellent for round-trip YAML editing and preserves most formatting. However:
 
-| Feature | ruamel.yaml | lossless-yaml |
+| Feature | ruamel.yaml | yaya |
 |---------|-------------|---------------|
 | Preserves comments | ✅ | ✅ |
 | Preserves most whitespace | ✅ | ✅ |
@@ -159,7 +161,7 @@ No reformatting. No comment loss. Just the change you made.
 | Trailing whitespace | ❌ | ✅ |
 | Block scalar indicators | ❌ (computes new ones) | ✅ |
 
-`lossless-yaml` uses `ruamel.yaml` under the hood but takes a different approach: instead of serializing the AST back to YAML, it modifies the original bytes directly.
+`yaya` uses `ruamel.yaml` under the hood but takes a different approach: instead of serializing the AST back to YAML, it modifies the original bytes directly.
 
 ## License
 

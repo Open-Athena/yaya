@@ -4,7 +4,7 @@ Based on workflow_transform_requirements.md
 """
 import pytest
 from pathlib import Path
-from lossless_yaml import LosslessYAML
+from yaya import YAYA
 
 
 def test_path_navigation(tmp_path):
@@ -17,7 +17,7 @@ def test_path_navigation(tmp_path):
       - uses: actions/checkout@v4
 """)
 
-    doc = LosslessYAML.load(yaml_file)
+    doc = YAYA.load(yaml_file)
 
     assert doc.get_path("jobs.test.runs-on") == "ubuntu-latest"
     assert doc["jobs"]["test"]["runs-on"] == "ubuntu-latest"
@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
 """)
 
-    doc = LosslessYAML.load(yaml_file)
+    doc = YAYA.load(yaml_file)
 
     doc.assert_value("on", ["push"])
     doc.assert_present("jobs.test")
@@ -60,7 +60,7 @@ def test_regex_replacement(tmp_path):
     run: uv sync --package other --dev
 """)
 
-    doc = LosslessYAML.load(yaml_file)
+    doc = YAYA.load(yaml_file)
     doc.replace_in_values_regex(r'\buv sync(?! --package)', r'uv sync --package levanter')
     doc.replace_in_values_regex(r'\buv run(?! --package)', r'uv run --package levanter')
     doc.save()
@@ -83,7 +83,7 @@ jobs:
     runs-on: ubuntu-latest
 """)
 
-    doc = LosslessYAML.load(yaml_file)
+    doc = YAYA.load(yaml_file)
     doc.assert_value("on", ["push"])
 
     doc.replace_key("on", {
@@ -130,7 +130,7 @@ def test_add_defaults_section(tmp_path):
       - uses: actions/checkout@v4
 """)
 
-    doc = LosslessYAML.load(yaml_file)
+    doc = YAYA.load(yaml_file)
     doc.assert_absent("jobs.test.defaults")
 
     doc.add_key_after("jobs.test.runs-on", "defaults", {
@@ -166,7 +166,7 @@ def test_parse_path_with_array_index(tmp_path):
         uses: actions/setup-python@v5
 """)
 
-    doc = LosslessYAML.load(yaml_file)
+    doc = YAYA.load(yaml_file)
 
     assert doc.get_path("jobs.test.steps[0].name") == "First step"
     assert doc.get_path("jobs.test.steps[1].name") == "Second step"
@@ -181,7 +181,7 @@ def test_replace_key_simple_value(tmp_path):
     runs-on: ubuntu-latest
 """)
 
-    doc = LosslessYAML.load(yaml_file)
+    doc = YAYA.load(yaml_file)
     doc.replace_key("jobs.test.runs-on", "ubuntu-22.04")
     doc.save()
 
@@ -198,12 +198,12 @@ def test_idempotency(tmp_path):
 """
     yaml_file.write_text(original)
 
-    doc = LosslessYAML.load(yaml_file)
+    doc = YAYA.load(yaml_file)
     doc.replace_in_values_regex(r'\buv sync(?! --package)', r'uv sync --package levanter')
     doc.save()
     first_result = yaml_file.read_text()
 
-    doc2 = LosslessYAML.load(yaml_file)
+    doc2 = YAYA.load(yaml_file)
     doc2.replace_in_values_regex(r'\buv sync(?! --package)', r'uv sync --package levanter')
     doc2.save()
     second_result = yaml_file.read_text()
