@@ -283,6 +283,64 @@ class YAYA:
         except KeyError:
             raise AssertionError(f"Path {path!r} should be present but is absent")
 
+    def ensure_key(self, path: str, value: Any, verify_if_exists: bool = False) -> bool:
+        """
+        Ensure a key exists with a specific value (idempotent).
+
+        If the key doesn't exist, adds it (creating intermediate paths as needed).
+        If it exists and verify_if_exists=True, checks that it matches the expected value.
+
+        Args:
+            path: Full dotted path including the key (e.g., "jobs.test.defaults.run.working-directory")
+            value: Expected value
+            verify_if_exists: If True, raises if key exists with different value
+
+        Returns:
+            True if key was added, False if it already existed
+
+        Raises:
+            ValueError: If verify_if_exists=True and existing value doesn't match
+
+        Examples:
+            >>> # Add if missing, ignore if exists
+            >>> doc.ensure_key("jobs.test.defaults.run.working-directory", "lib/levanter")
+            True
+
+            >>> # Add if missing, verify if exists
+            >>> doc.ensure_key("jobs.test.runs-on", "ubuntu-latest", verify_if_exists=True)
+            False
+        """
+        try:
+            existing_value = self.get_path(path)
+            # Key exists
+            if verify_if_exists and existing_value != value:
+                raise ValueError(
+                    f"Key {path!r} exists with value {existing_value!r}, "
+                    f"expected {value!r}"
+                )
+            return False
+        except KeyError:
+            # Key doesn't exist - need to add it
+            # First ensure all parent paths exist
+            parts = parse_path(path) if isinstance(path, str) else list(path)
+
+            # Create intermediate paths if needed
+            for i in range(1, len(parts)):
+                parent_path_str = '.'.join(str(p) if not isinstance(p, int) else f'[{p}]' for p in parts[:i])
+                # Clean up the path string (remove .[ patterns)
+                parent_path_str = parent_path_str.replace('.[', '[')
+
+                try:
+                    self.get_path(parent_path_str)
+                except KeyError:
+                    # Parent doesn't exist, create it as empty dict
+                    # Use add_key with force=True to create it
+                    self.add_key(parent_path_str, CommentedMap(), force=True)
+
+            # Now add the final key using add_key which properly tracks modifications
+            self.add_key(path, value, force=True)
+            return True
+
     def _find_key_byte_range(self, parent: CommentedMap, key: str) -> tuple[int, int]:
         """
         Find the byte range for a key-value pair in a CommentedMap.
@@ -433,12 +491,41 @@ class YAYA:
                 new_content = f"\n{indent_spaces}{key_str}: {yaml_value}"
 
             self._tracker.record_insertion(existing_end, new_content.encode('utf-8'))
-        else:
-            # Scalar - simpler approach
+            # Update data structure
             parent[final_key] = value
+        else:
+            # Scalar value - also needs to be serialized and inserted
+            # Determine indentation
+            if hasattr(parent, 'lc') and len(parent) > 0:
+                first_key = list(parent.keys())[0]
+                if first_key in parent.lc.data:
+                    key_col = parent.lc.data[first_key][1]
+                else:
+                    key_col = 0
+            else:
+                key_col = 0
 
-        # Update data structure
-        parent[final_key] = value
+            # Find insertion point (end of parent)
+            if len(parent) > 0:
+                # Find end of last key in parent
+                last_key = list(parent.keys())[-1]
+                if hasattr(parent, 'lc') and last_key in parent.lc.data:
+                    _, existing_end = self._find_key_byte_range(parent, last_key)
+                else:
+                    # No position info, append to end of file
+                    existing_end = len(self.original_bytes)
+            else:
+                # Empty parent
+                existing_end = 0
+
+            # Build the new key-value pair
+            indent_spaces = ' ' * key_col
+            key_str = str(final_key)
+            new_content = f"\n{indent_spaces}{key_str}: {value}"
+
+            self._tracker.record_insertion(existing_end, new_content.encode('utf-8'))
+            # Update data structure
+            parent[final_key] = value
 
     def replace_key(self, path: str, value: Any):
         """

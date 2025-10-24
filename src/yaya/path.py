@@ -101,11 +101,11 @@ def navigate_to_path(data: Any, path: str | list[str | int]) -> tuple[Any, Any, 
         parent = current
         final_key = part
 
-        if isinstance(current, CommentedMap):
+        if isinstance(current, (CommentedMap, dict)):
             if part not in current:
                 raise KeyError(f"Path not found: {'.'.join(str(p) for p in parts[:i+1])}")
             current = current[part]
-        elif isinstance(current, CommentedSeq):
+        elif isinstance(current, (CommentedSeq, list)):
             if not isinstance(part, int):
                 raise TypeError(f"Expected integer index for sequence, got {type(part).__name__}")
             if part < 0 or part >= len(current):
