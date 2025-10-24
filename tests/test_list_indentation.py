@@ -113,3 +113,121 @@ def test_add_key_after_with_lists(tmp_path):
     assert "        python-version:" in result
     # List items should be indented 2 spaces from parent
     assert '          - "3.10"' in result or "          - '3.10'" in result
+
+
+def test_aligned_list_style_detection(tmp_path):
+    """Test that aligned list style (offset=0) is detected and used."""
+    yaml_file = tmp_path / "test.yaml"
+    yaml_file.write_text("""config:
+  items:
+  - foo
+  - bar
+  nested:
+    subitems:
+    - one
+    - two
+""")
+
+    doc = LosslessYAML.load(yaml_file)
+
+    # Should detect offset=0 (aligned)
+    assert doc._detected_list_offset == 0
+
+    # Add a new key with a list
+    doc.add_key("config.newlist", {
+        "things": ["a", "b", "c"]
+    })
+    doc.save()
+
+    result = yaml_file.read_text()
+    print("Result:")
+    print(result)
+
+    # New list should also be aligned (not indented)
+    # things: is at 4 spaces (nested under newlist), dash should also be at 4 spaces
+    assert "    things:\n    - a" in result or "    things:\n    - 'a'" in result
+
+
+def test_indented_list_style_detection(tmp_path):
+    """Test that indented list style (offset=2) is detected and used."""
+    yaml_file = tmp_path / "test.yaml"
+    yaml_file.write_text("""config:
+  items:
+    - foo
+    - bar
+  nested:
+    subitems:
+      - one
+      - two
+""")
+
+    doc = LosslessYAML.load(yaml_file)
+
+    # Should detect offset=2 (indented)
+    assert doc._detected_list_offset == 2
+
+    # Add a new key with a list
+    doc.add_key("config.newlist", {
+        "things": ["a", "b", "c"]
+    })
+    doc.save()
+
+    result = yaml_file.read_text()
+    print("Result:")
+    print(result)
+
+    # New list should also be indented
+    # things: is at 4 spaces, dash should be at 6 spaces (indented 2 from parent)
+    assert "    things:\n      - a" in result or "    things:\n      - 'a'" in result
+
+
+def test_set_list_indent_style_override(tmp_path):
+    """Test manually overriding list indentation style."""
+    yaml_file = tmp_path / "test.yaml"
+    yaml_file.write_text("""config:
+  items:
+    - foo
+""")
+
+    doc = LosslessYAML.load(yaml_file)
+
+    # Override to use aligned style
+    doc.set_list_indent_style('aligned')
+
+    doc.add_key("config.newlist", {
+        "things": ["a", "b"]
+    })
+    doc.save()
+
+    result = yaml_file.read_text()
+    print("Result:")
+    print(result)
+
+    # Should use aligned style despite original being indented
+    # things: is at 4 spaces, dash should also be at 4 spaces (aligned)
+    assert "    things:\n    - a" in result or "    things:\n    - 'a'" in result
+
+
+def test_mixed_indentation_warning(tmp_path):
+    """Test that mixed indentation triggers a warning."""
+    yaml_file = tmp_path / "test.yaml"
+    yaml_file.write_text("""config:
+  aligned:
+  - foo
+  indented:
+    - bar
+""")
+
+    doc = LosslessYAML.load(yaml_file)
+
+    # Should detect ambiguity
+    assert doc._detected_list_offset is None
+
+    # Should warn when using it
+    import warnings
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        doc.add_key("config.newlist", {"things": ["a"]})
+        # Should have issued a warning
+        assert len(w) == 1
+        assert "No consistent list indentation" in str(w[0].message)

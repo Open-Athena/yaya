@@ -7,9 +7,11 @@ programmatic modifications to values.
 from pathlib import Path
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 from io import BytesIO
 import re
+import os
+import warnings
 
 
 def line_col_to_index(text: bytes, line: int, col: int) -> int:
@@ -153,18 +155,90 @@ def parse_path(path: str) -> list[str | int]:
     return parts
 
 
-def serialize_to_yaml(value: Any, indent: int = 0, style: str = 'block') -> str:
+def detect_list_indentation(data: Any, original_bytes: bytes) -> int | None:
+    """
+    Detect the list indentation offset used in the document.
+    Returns the offset (0 for aligned, 2 for indented) or None if no lists found.
+    """
+    offsets = []
+
+    def scan_for_lists(obj, parent_obj=None, parent_key=None):
+        if isinstance(obj, CommentedSeq):
+            # This is a list - check its indentation
+            if hasattr(obj, 'lc') and hasattr(obj.lc, 'data') and len(obj) > 0:
+                # Get first item position
+                if 0 in obj.lc.data:
+                    item_line, item_col = obj.lc.data[0][0], obj.lc.data[0][1]
+                    # Get parent key position if available
+                    if parent_obj and hasattr(parent_obj, 'lc') and parent_key in parent_obj.lc.data:
+                        parent_lc = parent_obj.lc.data[parent_key]
+                        parent_col = parent_lc[1]
+                        # item_col is the column of the scalar value, not the dash
+                        # The dash is always 2 characters before (dash + space)
+                        dash_col = item_col - 2
+                        # Calculate offset: dash_col - parent_col
+                        offset = dash_col - parent_col
+                        offsets.append(offset)
+
+            # Recurse into list items
+            for item in obj:
+                scan_for_lists(item, obj, None)
+
+        elif isinstance(obj, CommentedMap):
+            for key, value in obj.items():
+                scan_for_lists(value, obj, key)
+
+    scan_for_lists(data)
+
+    if not offsets:
+        return None
+
+    # Return the most common offset
+    from collections import Counter
+    counts = Counter(offsets)
+    most_common_offset, count = counts.most_common(1)[0]
+
+    # If there's disagreement, check if it's significant
+    if len(counts) > 1:
+        total = sum(counts.values())
+        if count / total < 0.7:  # Less than 70% consensus
+            # Mixed indentation - return None to signal ambiguity
+            return None
+
+    return most_common_offset
+
+
+def serialize_to_yaml(value: Any, indent: int = 0, style: str = 'block', list_offset: int | None = None) -> str:
     """
     Serialize a Python value to YAML string with specific indentation.
-    Uses 2-space indentation with offset=2 for list items (GitHub Actions style).
+
+    Args:
+        value: The value to serialize
+        indent: Additional indentation to add to all lines
+        style: 'block' or 'flow'
+        list_offset: Offset for list items from parent key (0=aligned, 2=indented).
+                    If None, uses default based on environment or raises.
     """
+    if list_offset is None:
+        # Check environment variable for default
+        env_default = os.environ.get('LOSSLESS_YAML_LIST_OFFSET', '').strip()
+        if env_default:
+            try:
+                list_offset = int(env_default)
+            except ValueError:
+                warnings.warn(f"Invalid LOSSLESS_YAML_LIST_OFFSET value: {env_default!r}, using offset=2")
+                list_offset = 2
+        else:
+            # Default to 2 (GitHub Actions style)
+            list_offset = 2
+
     yaml = YAML()
     yaml.default_flow_style = (style == 'flow')
     yaml.width = 4096
     # mapping=2: indent nested mappings by 2 spaces
     # sequence=2: indent list items by 2 spaces
-    # offset=2: indent the dash of list items by 2 spaces from parent key
-    yaml.indent(mapping=2, sequence=2, offset=2)
+    # offset: indent the dash of list items from parent key (0=aligned, 2=indented)
+    yaml.indent(mapping=2, sequence=2, offset=list_offset)
 
     from io import StringIO
     stream = StringIO()
@@ -188,6 +262,9 @@ class LosslessYAML:
         self.data = data
         self.file_path = file_path
         self.modifications: dict[tuple[int, int], bytes] = {}
+        # Detect list indentation style from document
+        self._detected_list_offset = detect_list_indentation(data, original_bytes)
+        self._list_offset_override: int | None = None
 
     @classmethod
     def load(cls, file_path: str | Path) -> 'LosslessYAML':
@@ -201,6 +278,53 @@ class LosslessYAML:
         doc = cls(original_bytes, data, path)
         doc._wrap_data(data)
         return doc
+
+    def set_list_indent_style(self, offset: int | Literal['aligned', 'indented']):
+        """
+        Override the list indentation style for this document.
+
+        Args:
+            offset: 0 or 'aligned' for bullets aligned with parent key,
+                   2 or 'indented' for bullets indented 2 spaces from parent
+        """
+        if offset == 'aligned':
+            self._list_offset_override = 0
+        elif offset == 'indented':
+            self._list_offset_override = 2
+        elif isinstance(offset, int):
+            self._list_offset_override = offset
+        else:
+            raise ValueError(f"Invalid offset: {offset}. Use 0, 2, 'aligned', or 'indented'")
+
+    def _get_list_offset(self) -> int | None:
+        """
+        Get the list offset to use, considering overrides and detection.
+        Returns None if ambiguous and no override set.
+        """
+        if self._list_offset_override is not None:
+            return self._list_offset_override
+
+        if self._detected_list_offset is not None:
+            return self._detected_list_offset
+
+        # Check for mixed/ambiguous indentation behavior
+        env_behavior = os.environ.get('LOSSLESS_YAML_MIXED_INDENT', 'warn').lower()
+        if env_behavior == 'error':
+            raise ValueError(
+                "Mixed or ambiguous list indentation detected in document. "
+                "Use doc.set_list_indent_style() to specify explicitly, or set "
+                "LOSSLESS_YAML_LIST_OFFSET environment variable."
+            )
+        elif env_behavior == 'warn':
+            warnings.warn(
+                "No consistent list indentation detected in document. "
+                "Defaulting to offset=2 (indented). Use doc.set_list_indent_style() "
+                "to override or set LOSSLESS_YAML_LIST_OFFSET environment variable.",
+                UserWarning
+            )
+
+        # Fall through to serialize_to_yaml's default handling
+        return None
 
     def _record_modification(self, obj: Any, key: Any, value: Any):
         """Record a modification to track byte position changes."""
@@ -461,7 +585,7 @@ class LosslessYAML:
         # For new keys at root or arbitrary position, append at end
         # Serialize the value
         if isinstance(value, (dict, list)):
-            yaml_value = serialize_to_yaml(value, indent=0)
+            yaml_value = serialize_to_yaml(value, indent=0, list_offset=self._get_list_offset())
 
             # Determine indentation
             if hasattr(parent, 'lc') and len(parent) > 0:
@@ -537,7 +661,7 @@ class LosslessYAML:
             # Serialize the new value
             if isinstance(value, (dict, list)):
                 # Convert plain dict/list to YAML
-                yaml_value = serialize_to_yaml(value, indent=0)
+                yaml_value = serialize_to_yaml(value, indent=0, list_offset=self._get_list_offset())
 
                 # Find the byte range to replace
                 start, end = self._find_key_byte_range(parent, final_key)
@@ -594,7 +718,7 @@ class LosslessYAML:
         _, existing_end = self._find_key_byte_range(parent, existing_key)
 
         # Serialize the new value
-        yaml_value = serialize_to_yaml(value, indent=0)
+        yaml_value = serialize_to_yaml(value, indent=0, list_offset=self._get_list_offset())
 
         # Build the new key-value pair
         indent_spaces = ' ' * key_col
