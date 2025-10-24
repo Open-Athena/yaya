@@ -1,7 +1,7 @@
 [project]
 name = "yaya"
 version = "0.1.0"
-description = "Yet Another YAML AST transformer - Byte-for-byte preserving YAML editor"
+description = "Yet Another YAML AST - programmatically transform YAML, preserving whitespace and comments"
 authors = [
     { name = "Ryan Williams", email = "ryan@no.de" }
 ]
