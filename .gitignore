@@ -5,6 +5,3 @@ dist/
 build/
 .pytest_cache/
 .venv/
-*.yaml
-*.yml
-!examples/*.py
