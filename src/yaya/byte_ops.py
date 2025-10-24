@@ -117,8 +117,33 @@ def find_scalar_value_range(text: bytes, line: int, col: int) -> tuple[int, int]
         return (content_start, idx)
 
     # Plain scalar - until newline, comment, or flow indicator
+    # Special handling for GitHub Actions jinja2 expressions: ${{ ... }}
     idx = start_idx
-    while idx < len(text) and text[idx] not in b'\n\r#,:{}[]':
+    while idx < len(text):
+        ch = text[idx]
+
+        # Check for end conditions
+        if ch in b'\n\r#,:[]':
+            break
+
+        # Special case: Check for ${{ pattern (GitHub Actions/jinja2)
+        if ch == ord('$') and idx + 2 < len(text):
+            if text[idx+1] == ord('{') and text[idx+2] == ord('{'):
+                # Found ${{ - scan until we find matching }}
+                idx += 3  # Skip past ${{'
+                depth = 2  # We need to find 2 closing braces
+                while idx < len(text) and depth > 0:
+                    if text[idx] == ord('}'):
+                        depth -= 1
+                    elif text[idx] == ord('{'):
+                        depth += 1
+                    idx += 1
+                continue
+
+        # Regular flow indicators end the scalar
+        if ch in b'{}':
+            break
+
         idx += 1
 
     # Trim trailing whitespace
