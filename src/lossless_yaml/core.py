@@ -7,8 +7,9 @@ programmatic modifications to values.
 from pathlib import Path
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
-from typing import Any
+from typing import Any, Callable
 from io import BytesIO
+import re
 
 
 def line_col_to_index(text: bytes, line: int, col: int) -> int:
@@ -110,6 +111,70 @@ def find_scalar_value_range(text: bytes, line: int, col: int) -> tuple[int, int]
         idx -= 1
 
     return (start_idx, idx)
+
+
+def parse_path(path: str) -> list[str | int]:
+    """
+    Parse a dotted path string into components.
+    Supports: "jobs.test.steps[0].uses"
+    Returns: ["jobs", "test", "steps", 0, "uses"]
+    """
+    parts = []
+    current = []
+
+    i = 0
+    while i < len(path):
+        ch = path[i]
+        if ch == '.':
+            if current:
+                parts.append(''.join(current))
+                current = []
+        elif ch == '[':
+            if current:
+                parts.append(''.join(current))
+                current = []
+            # Find closing ]
+            j = i + 1
+            while j < len(path) and path[j] != ']':
+                j += 1
+            if j < len(path):
+                index_str = path[i+1:j]
+                parts.append(int(index_str))
+                i = j
+            else:
+                raise ValueError(f"Unclosed bracket in path: {path}")
+        else:
+            current.append(ch)
+        i += 1
+
+    if current:
+        parts.append(''.join(current))
+
+    return parts
+
+
+def serialize_to_yaml(value: Any, indent: int = 0, style: str = 'block') -> str:
+    """
+    Serialize a Python value to YAML string with specific indentation.
+    This is a simple serializer for basic types. For complex needs, consider using ruamel.yaml.
+    """
+    yaml = YAML()
+    yaml.default_flow_style = (style == 'flow')
+    yaml.width = 4096
+    yaml.indent(mapping=2, sequence=2, offset=0)
+
+    from io import StringIO
+    stream = StringIO()
+    yaml.dump(value, stream)
+    result = stream.getvalue()
+
+    # Add indentation to all lines if needed
+    if indent > 0:
+        lines = result.rstrip('\n').split('\n')
+        indented_lines = [(' ' * indent) + line for line in lines]
+        return '\n'.join(indented_lines)
+
+    return result.rstrip('\n')
 
 
 class LosslessYAML:
@@ -216,6 +281,256 @@ class LosslessYAML:
                         replace_recursive(item)
 
         replace_recursive(self.data)
+
+    def replace_in_values_regex(self, pattern: str, replacement: str):
+        """Replace all occurrences matching regex `pattern` with `replacement` in all string values."""
+        compiled_pattern = re.compile(pattern)
+
+        def replace_recursive(obj):
+            if isinstance(obj, CommentedMap):
+                for key, value in obj.items():
+                    if isinstance(value, str) and compiled_pattern.search(value):
+                        new_value = compiled_pattern.sub(replacement, value)
+                        self._record_modification(obj, key, new_value)
+                        obj[key] = new_value
+                    else:
+                        replace_recursive(value)
+            elif isinstance(obj, CommentedSeq):
+                for i, item in enumerate(obj):
+                    if isinstance(item, str) and compiled_pattern.search(item):
+                        new_value = compiled_pattern.sub(replacement, item)
+                        self._record_modification(obj, i, new_value)
+                        obj[i] = new_value
+                    else:
+                        replace_recursive(item)
+
+        replace_recursive(self.data)
+
+    def _navigate_to_path(self, path: str | list[str | int]) -> tuple[Any, Any, str | int]:
+        """
+        Navigate to a path and return (parent, current_value, final_key).
+        Raises KeyError if path doesn't exist.
+        """
+        if isinstance(path, str):
+            parts = parse_path(path)
+        else:
+            parts = path
+
+        if not parts:
+            raise ValueError("Empty path")
+
+        current = self.data
+        parent = None
+        final_key = None
+
+        for i, part in enumerate(parts):
+            parent = current
+            final_key = part
+
+            if isinstance(current, CommentedMap):
+                if part not in current:
+                    raise KeyError(f"Path not found: {'.'.join(str(p) for p in parts[:i+1])}")
+                current = current[part]
+            elif isinstance(current, CommentedSeq):
+                if not isinstance(part, int):
+                    raise TypeError(f"Expected integer index for sequence, got {type(part).__name__}")
+                if part < 0 or part >= len(current):
+                    raise IndexError(f"Index {part} out of range for sequence of length {len(current)}")
+                current = current[part]
+            else:
+                raise TypeError(f"Cannot navigate through {type(current).__name__}")
+
+        return parent, current, final_key
+
+    def get_path(self, path: str) -> Any:
+        """Get value at path. Example: doc.get_path("jobs.test.runs-on")"""
+        _, value, _ = self._navigate_to_path(path)
+        return value
+
+    def __getitem__(self, key: str) -> Any:
+        """Dict-like access: doc["jobs"]["test"]["runs-on"]"""
+        return self.data[key]
+
+    def assert_value(self, path: str, expected: Any):
+        """Assert that value at path equals expected. Raises AssertionError if not."""
+        actual = self.get_path(path)
+        if actual != expected:
+            raise AssertionError(f"Expected {expected!r} at path {path!r}, got {actual!r}")
+
+    def assert_absent(self, path: str):
+        """Assert that path does not exist. Raises AssertionError if it exists."""
+        try:
+            self.get_path(path)
+            raise AssertionError(f"Path {path!r} should be absent but exists")
+        except KeyError:
+            pass
+
+    def assert_present(self, path: str):
+        """Assert that path exists. Raises AssertionError if absent."""
+        try:
+            self.get_path(path)
+        except KeyError:
+            raise AssertionError(f"Path {path!r} should be present but is absent")
+
+    def _find_key_byte_range(self, parent: CommentedMap, key: str) -> tuple[int, int]:
+        """
+        Find the byte range for a key-value pair in a CommentedMap.
+        Returns (start, end) where start is the beginning of the key line
+        and end is the end of the value (or end of last line of value).
+        """
+        if not hasattr(parent, 'lc') or key not in parent.lc.data:
+            raise ValueError(f"Key {key!r} not found in line/col data")
+
+        lc_info = parent.lc.data[key]
+        if len(lc_info) < 4:
+            raise ValueError(f"Incomplete line/col info for key {key!r}")
+
+        key_line, key_col, val_line, val_col = lc_info[:4]
+
+        # Find start of key line
+        key_start_idx = line_col_to_index(self.original_bytes, key_line, 0)
+
+        # Find end of value
+        val_start, val_end = find_scalar_value_range(self.original_bytes, val_line, val_col)
+
+        # For non-scalar values (maps, sequences), we need to find the actual end
+        value = parent[key]
+        if isinstance(value, (CommentedMap, CommentedSeq)):
+            # Find the end by looking for the next sibling key or dedent
+            # For now, use a simple heuristic: find the next line with same or less indentation
+            val_end_line = val_line
+            if hasattr(value, 'lc') and hasattr(value.lc, 'data'):
+                # Get the last item's position
+                if isinstance(value, CommentedMap) and value:
+                    last_key = list(value.keys())[-1]
+                    if last_key in value.lc.data:
+                        last_info = value.lc.data[last_key]
+                        if len(last_info) >= 4:
+                            val_end_line = last_info[2]
+                elif isinstance(value, CommentedSeq) and value:
+                    last_idx = len(value) - 1
+                    if last_idx in value.lc.data:
+                        last_info = value.lc.data[last_idx]
+                        if len(last_info) >= 2:
+                            val_end_line = last_info[0]
+
+            # Find end of that line
+            val_end = line_col_to_index(self.original_bytes, val_end_line, 0)
+            while val_end < len(self.original_bytes) and self.original_bytes[val_end] != ord('\n'):
+                val_end += 1
+
+        return key_start_idx, val_end
+
+    def replace_key(self, path: str, value: Any):
+        """
+        Replace the value at path with a new value.
+        The new value can be a dict, list, or scalar.
+        """
+        parent, old_value, final_key = self._navigate_to_path(path)
+
+        if not isinstance(parent, CommentedMap):
+            raise TypeError(f"Can only replace keys in mappings, not {type(parent).__name__}")
+
+        # Determine indentation from the key's position
+        if hasattr(parent, 'lc') and final_key in parent.lc.data:
+            lc_info = parent.lc.data[final_key]
+            key_line, key_col = lc_info[0], lc_info[1]
+
+            # Serialize the new value
+            if isinstance(value, (dict, list)):
+                # Convert plain dict/list to YAML
+                yaml_value = serialize_to_yaml(value, indent=0)
+
+                # Find the byte range to replace
+                start, end = self._find_key_byte_range(parent, final_key)
+
+                # Build the replacement: key: value
+                indent_spaces = ' ' * key_col
+                key_str = str(final_key)
+
+                # Handle multiline values
+                if '\n' in yaml_value:
+                    # Block style - value starts on next line
+                    replacement_lines = [f"{indent_spaces}{key_str}:"]
+                    value_lines = yaml_value.split('\n')
+                    for line in value_lines:
+                        if line.strip():
+                            replacement_lines.append(f"{indent_spaces}  {line}")
+                        else:
+                            replacement_lines.append('')
+                    replacement = '\n'.join(replacement_lines)
+                else:
+                    # Single line value
+                    replacement = f"{indent_spaces}{key_str}: {yaml_value}"
+
+                self.modifications[(start, end)] = replacement.encode('utf-8')
+            else:
+                # Scalar value - use existing _record_modification
+                self._record_modification(parent, final_key, str(value))
+
+            # Update the data structure
+            parent[final_key] = value
+
+    def add_key_after(self, existing_path: str, new_key: str, value: Any):
+        """
+        Add a new key after an existing key in a mapping.
+        Example: doc.add_key_after("jobs.test.runs-on", "defaults", {...})
+        """
+        # Navigate to the parent containing the existing key
+        parent, _, existing_key = self._navigate_to_path(existing_path)
+
+        if not isinstance(parent, CommentedMap):
+            raise TypeError(f"Can only add keys to mappings, not {type(parent).__name__}")
+
+        if new_key in parent:
+            raise KeyError(f"Key {new_key!r} already exists")
+
+        # Find the position to insert
+        if not hasattr(parent, 'lc') or existing_key not in parent.lc.data:
+            raise ValueError(f"Cannot find position info for key {existing_key!r}")
+
+        lc_info = parent.lc.data[existing_key]
+        key_col = lc_info[1]
+
+        # Find the end of the existing key's value
+        _, existing_end = self._find_key_byte_range(parent, existing_key)
+
+        # Serialize the new value
+        yaml_value = serialize_to_yaml(value, indent=0)
+
+        # Build the new key-value pair
+        indent_spaces = ' ' * key_col
+        if '\n' in yaml_value:
+            # Block style
+            new_lines = [f"\n{indent_spaces}{new_key}:"]
+            value_lines = yaml_value.split('\n')
+            for line in value_lines:
+                if line.strip():
+                    new_lines.append(f"{indent_spaces}  {line}")
+                else:
+                    new_lines.append('')
+            new_content = '\n'.join(new_lines)
+        else:
+            # Single line
+            new_content = f"\n{indent_spaces}{new_key}: {yaml_value}"
+
+        # Insert after the existing key
+        # We insert by replacing the range (existing_end, existing_end) with the new content
+        self.modifications[(existing_end, existing_end)] = new_content.encode('utf-8')
+
+        # Update the data structure - need to maintain order
+        # Create a new CommentedMap with the key inserted in the right position
+        keys = list(parent.keys())
+        existing_index = keys.index(existing_key)
+
+        # Insert the new value into the data structure
+        # We'll do this by rebuilding the map with the new key in the right place
+        items = list(parent.items())
+        items.insert(existing_index + 1, (new_key, value))
+
+        parent.clear()
+        for k, v in items:
+            parent[k] = v
 
     def save(self, file_path: Path | str | None = None) -> bytes:
         """Save the modified YAML, preserving all formatting."""
