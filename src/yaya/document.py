@@ -662,6 +662,67 @@ class YAYA:
         for k, v in items:
             parent[k] = v
 
+    def insert_key_between(
+        self,
+        path: str,
+        prev_key: str,
+        next_key: str,
+        new_key: str,
+        value: Any
+    ):
+        """
+        Insert a new key between two adjacent keys in a mapping.
+
+        Verifies that prev_key and next_key are adjacent before inserting,
+        providing better error messages and preventing mistakes.
+
+        Args:
+            path: Path to the parent dict (e.g., "jobs.build")
+            prev_key: Key that should immediately precede the new key
+            next_key: Key that should immediately follow the new key
+            new_key: Name of the key to insert
+            value: Value for the new key
+
+        Raises:
+            KeyError: If prev_key or next_key don't exist
+            ValueError: If prev_key and next_key aren't adjacent
+            TypeError: If path doesn't point to a mapping
+
+        Examples:
+            >>> # Insert defaults between 'if' and 'steps'
+            >>> doc.insert_key_between(
+            ...     "jobs.build",
+            ...     prev_key="if",
+            ...     next_key="steps",
+            ...     new_key="defaults",
+            ...     value={"run": {"working-directory": "lib/levanter"}}
+            ... )
+        """
+        parent = self.get_path(path)
+
+        if not isinstance(parent, (CommentedMap, dict)):
+            raise TypeError(f"Path {path!r} is not a mapping")
+
+        keys = list(parent.keys())
+
+        if prev_key not in keys:
+            raise KeyError(f"Previous key {prev_key!r} not found in {path}")
+        if next_key not in keys:
+            raise KeyError(f"Next key {next_key!r} not found in {path}")
+
+        prev_idx = keys.index(prev_key)
+        next_idx = keys.index(next_key)
+
+        if next_idx != prev_idx + 1:
+            keys_between = keys[prev_idx+1:next_idx]
+            raise ValueError(
+                f"Keys {prev_key!r} and {next_key!r} are not adjacent. "
+                f"Found {len(keys_between)} key(s) between them: {keys_between}"
+            )
+
+        # Keys are adjacent - use add_key_after
+        self.add_key_after(f"{path}.{prev_key}", new_key, value)
+
     def save(self, file_path: Path | str | None = None) -> bytes:
         """
         Save the modified YAML, preserving all formatting.
