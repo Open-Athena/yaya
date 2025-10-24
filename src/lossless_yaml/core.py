@@ -156,12 +156,15 @@ def parse_path(path: str) -> list[str | int]:
 def serialize_to_yaml(value: Any, indent: int = 0, style: str = 'block') -> str:
     """
     Serialize a Python value to YAML string with specific indentation.
-    This is a simple serializer for basic types. For complex needs, consider using ruamel.yaml.
+    Uses 2-space indentation with offset=2 for list items (GitHub Actions style).
     """
     yaml = YAML()
     yaml.default_flow_style = (style == 'flow')
     yaml.width = 4096
-    yaml.indent(mapping=2, sequence=2, offset=0)
+    # mapping=2: indent nested mappings by 2 spaces
+    # sequence=2: indent list items by 2 spaces
+    # offset=2: indent the dash of list items by 2 spaces from parent key
+    yaml.indent(mapping=2, sequence=2, offset=2)
 
     from io import StringIO
     stream = StringIO()
@@ -421,12 +424,107 @@ class LosslessYAML:
 
         return key_start_idx, val_end
 
+    def add_key(self, path: str, value: Any, force: bool = False):
+        """
+        Add a new key at path. If force=True, replaces existing key.
+        For adding keys at specific positions, use add_key_after.
+        """
+        parts = parse_path(path) if isinstance(path, str) else path
+        if len(parts) == 1:
+            # Top-level key
+            parent = self.data
+            final_key = parts[0]
+        else:
+            # Navigate to parent
+            parent_path = parts[:-1]
+            final_key = parts[-1]
+            current = self.data
+            for part in parent_path:
+                if isinstance(current, CommentedMap):
+                    if part not in current:
+                        raise KeyError(f"Parent path not found: {'.'.join(str(p) for p in parent_path)}")
+                    current = current[part]
+                elif isinstance(current, CommentedSeq):
+                    if not isinstance(part, int):
+                        raise TypeError(f"Expected integer index for sequence")
+                    current = current[part]
+                else:
+                    raise TypeError(f"Cannot navigate through {type(current).__name__}")
+            parent = current
+
+        if not isinstance(parent, CommentedMap):
+            raise TypeError(f"Can only add keys to mappings, not {type(parent).__name__}")
+
+        if final_key in parent and not force:
+            raise KeyError(f"Key {final_key!r} already exists. Use force=True to overwrite.")
+
+        # For new keys at root or arbitrary position, append at end
+        # Serialize the value
+        if isinstance(value, (dict, list)):
+            yaml_value = serialize_to_yaml(value, indent=0)
+
+            # Determine indentation
+            if hasattr(parent, 'lc') and len(parent) > 0:
+                # Get indentation from first existing key
+                first_key = list(parent.keys())[0]
+                if first_key in parent.lc.data:
+                    key_col = parent.lc.data[first_key][1]
+                else:
+                    key_col = 0
+            else:
+                key_col = 0
+
+            # Find insertion point (end of parent)
+            if len(parent) > 0:
+                # Find end of last key in parent
+                last_key = list(parent.keys())[-1]
+                if hasattr(parent, 'lc') and last_key in parent.lc.data:
+                    _, existing_end = self._find_key_byte_range(parent, last_key)
+                else:
+                    # No position info, append to end of file
+                    existing_end = len(self.original_bytes)
+            else:
+                # Empty parent, insert at beginning
+                existing_end = 0
+
+            # Build the new key-value pair
+            indent_spaces = ' ' * key_col
+            key_str = str(final_key)
+
+            if '\n' in yaml_value:
+                # Block style
+                new_lines = [f"\n{indent_spaces}{key_str}:"]
+                value_lines = yaml_value.split('\n')
+                for line in value_lines:
+                    if line.strip():
+                        new_lines.append(f"{indent_spaces}  {line}")
+                    else:
+                        new_lines.append('')
+                new_content = '\n'.join(new_lines)
+            else:
+                # Single line
+                new_content = f"\n{indent_spaces}{key_str}: {yaml_value}"
+
+            self.modifications[(existing_end, existing_end)] = new_content.encode('utf-8')
+        else:
+            # Scalar - simpler approach
+            parent[final_key] = value
+
+        # Update data structure
+        parent[final_key] = value
+
     def replace_key(self, path: str, value: Any):
         """
         Replace the value at path with a new value.
         The new value can be a dict, list, or scalar.
+        If the key doesn't exist, adds it (same as add_key with force=True).
         """
-        parent, old_value, final_key = self._navigate_to_path(path)
+        try:
+            parent, old_value, final_key = self._navigate_to_path(path)
+        except KeyError:
+            # Key doesn't exist, add it
+            self.add_key(path, value, force=True)
+            return
 
         if not isinstance(parent, CommentedMap):
             raise TypeError(f"Can only replace keys in mappings, not {type(parent).__name__}")
