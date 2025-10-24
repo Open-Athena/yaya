@@ -15,7 +15,7 @@ The ideal interface would allow:
 ### Example API Sketch
 
 ```python
-doc = LosslessYAML.load("workflow.yaml")
+doc = YAYA.load("workflow.yaml")
 
 # Assert current value before replacing (raises if mismatch)
 doc.assert_value("on", ["push"])

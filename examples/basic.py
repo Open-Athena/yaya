@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Basic example of using lossless-yaml.
+Basic example of using yaya.
 """
 from pathlib import Path
-from lossless_yaml import LosslessYAML
+from yaya import YAYA
 
 # Create a sample YAML file
 sample_yaml = """# Configuration file
@@ -21,7 +21,7 @@ config_file = Path('config.yaml')
 config_file.write_text(sample_yaml)
 
 # Load and modify
-doc = LosslessYAML.load(config_file)
+doc = YAYA.load(config_file)
 
 # Replace host
 doc.replace_in_values('prod-db-1', 'prod-db-2')

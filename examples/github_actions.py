@@ -5,7 +5,7 @@ Example: Update paths in GitHub Actions workflows.
 This is useful when restructuring a monorepo.
 """
 from pathlib import Path
-from lossless_yaml import LosslessYAML
+from yaya import YAYA
 
 # Create a sample workflow
 workflow_yaml = """name: Test
@@ -29,7 +29,7 @@ workflow_file = Path('test.yaml')
 workflow_file.write_text(workflow_yaml)
 
 # Load and modify
-doc = LosslessYAML.load(workflow_file)
+doc = YAYA.load(workflow_file)
 
 # Update paths from src/mypackage to lib/mypackage/src/mypackage
 doc.replace_in_values('src/mypackage', 'lib/mypackage/src/mypackage')

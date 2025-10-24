@@ -1,8 +1,8 @@
-# lossless-yaml Development Context
+# yaya Development Context
 
 ## Project Overview
 
-**lossless-yaml** is a Python library for byte-for-byte preserving YAML editing. Unlike ruamel.yaml's round-trip mode (which preserves most formatting but makes small changes), this library guarantees that only the values you explicitly modify will change.
+**yaya** (Yet Another YAML AST transformer) is a Python library for byte-for-byte preserving YAML editing. Unlike ruamel.yaml's round-trip mode (which preserves most formatting but makes small changes), this library guarantees that only the values you explicitly modify will change.
 
 ## Key Innovation
 
@@ -15,76 +15,90 @@ Instead of parse → modify → serialize, we:
 ## Architecture
 
 ```
-src/lossless_yaml/
+src/yaya/
 ├── __init__.py          # Package exports
-└── core.py              # Main implementation
-    ├── line_col_to_index()           # Convert (line, col) → byte offset
-    ├── find_scalar_value_range()     # Find byte range of a scalar value
-    └── LosslessYAML                   # Main class
-        ├── .load(file_path)          # Load YAML file
-        ├── .replace_in_values(old, new)  # Bulk string replacement
-        └── .save(file_path=None)     # Save with modifications
+├── document.py          # YAYA class (main interface)
+├── byte_ops.py          # Byte/position utilities
+├── modifications.py     # ModificationTracker class
+├── serialization.py     # YAML serialization with indentation
+└── path.py              # Path parsing and navigation
 ```
+
+Key functions and classes:
+- `byte_ops.line_col_to_index()`: Convert (line, col) → byte offset
+- `byte_ops.find_scalar_value_range()`: Find byte range of a scalar value
+- `YAYA`: Main class
+    - `.load(file_path)`: Load YAML file
+    - `.replace_in_values(old, new)`: Bulk string replacement
+    - `.save(file_path=None)`: Save with modifications
 
 ## Current Status
 
-### Working (4/6 tests passing)
+### ✅ All Tests Passing (21/21)
 - ✅ Simple string replacements in plain scalars
 - ✅ Comment preservation
 - ✅ Whitespace preservation
+- ✅ Block scalar handling
+- ✅ Nested structures (mappings in sequences)
 - ✅ No-op when pattern doesn't match
-- ✅ Basic example works perfectly
-
-### Failing (2/6 tests)
-1. **Block scalars** (`test_block_scalar`)
-   - Modifications to block scalar content aren't being applied
-   - Issue: Block scalar indentation preservation in `_format_replacement()` may be incorrect
-   - The function exists but may not be working as expected
-
-2. **Nested structures** (`test_nested_structures`)
-   - Values in nested mappings within sequences aren't being replaced
-   - Example: `list: [{item1: old_value}]` - the `old_value` doesn't get replaced
-   - Issue: Sequence items that are mappings aren't being tracked properly
+- ✅ Regex-based replacement
+- ✅ List indentation detection and configuration
+- ✅ Path navigation and assertions
+- ✅ Key addition and replacement
+- ✅ Idempotency
+- ✅ Examples work perfectly
 
 ## Known Issues & TODOs
 
-### High Priority
-- [ ] Fix block scalar replacement (test_block_scalar)
-- [ ] Fix nested structure tracking (test_nested_structures)
-  - Specifically: mappings that are items in sequences
-  - Need to ensure `_record_modification` handles this case
-
 ### Medium Priority
-- [ ] Add yq-style path selectors (`.jobs.test.steps[*].run`)
+- [ ] Add yq-style path selectors with wildcards (`.jobs.test.steps[*].run`)
 - [ ] Add direct dict-like access with `__setitem__` tracking
 - [ ] Better error messages when modifications fail
 - [ ] Handle edge cases: flow-style collections, anchors/aliases, multi-document streams
 
 ### Future Enhancements
-- [ ] Regex-based replacement
 - [ ] Callback-based value transformation
 - [ ] Preserving anchors and aliases through modifications
-- [ ] Support for adding/removing keys (currently only value replacement)
+- [ ] Support for removing keys (currently only adding/replacing)
 
 ## Key Files to Review
 
-1. **`src/lossless_yaml/core.py`**: Main implementation
-   - `_record_modification()`: Records byte positions for changed values
-   - `_format_replacement()`: Formats replacement values (handles block scalar indent)
+1. **`src/yaya/document.py`**: Main YAYA class
    - `replace_in_values()`: Recursively replaces strings in the AST
+   - `add_key()`, `replace_key()`, `add_key_after()`: Key manipulation
+   - `get_path()`, `assert_value()`, etc.: Path navigation and assertions
 
-2. **`tests/test_basic.py`**: Test suite
-   - Look at `test_block_scalar` and `test_nested_structures` for failing cases
-   - These tests show exactly what needs to be fixed
+2. **`src/yaya/modifications.py`**: ModificationTracker class
+   - `record_scalar_modification()`: Records byte positions for changed values
+   - `_format_replacement()`: Formats replacement values (handles block scalar indent)
+   - `apply_modifications()`: Applies all modifications to original bytes
 
-3. **`examples/github_actions.py`**: Real-world use case
-   - Shows the intended usage for updating paths in workflows
+3. **`src/yaya/byte_ops.py`**: Low-level byte operations
+   - `line_col_to_index()`: Position to byte offset conversion
+   - `find_scalar_value_range()`: Finds byte ranges of values
+
+4. **`src/yaya/path.py`**: Path parsing and navigation
+   - `parse_path()`: Parses dotted paths with array indices
+   - `navigate_to_path()`: Navigates to paths in the AST
+
+5. **`src/yaya/serialization.py`**: YAML serialization utilities
+   - `detect_list_indentation()`: Detects list indentation style
+   - `serialize_to_yaml()`: Serializes values with specific indentation
+
+6. **`tests/`**: Comprehensive test suite
+   - `test_basic.py`: Core functionality tests
+   - `test_list_indentation.py`: List indentation tests
+   - `test_workflow_transforms.py`: Real-world workflow transformation tests
+
+7. **`examples/`**: Usage examples
+   - `basic.py`: Simple example
+   - `github_actions.py`: Real-world use case for updating paths in workflows
 
 ## Debugging Tips
 
 ### To debug modifications not being applied:
 ```python
-doc = LosslessYAML.load('test.yaml')
+doc = YAYA.load('test.yaml')
 print(f"Before: {doc.modifications}")  # Should be {}
 doc.replace_in_values('old', 'new')
 print(f"After: {doc.modifications}")   # Should show byte ranges
@@ -161,24 +175,18 @@ This library guarantees those stay untouched.
 - ruamel.yaml source: https://sourceforge.net/p/ruamel-yaml/code/ (Mercurial)
 - Original discussion in: `/Users/ryan/c/ruamel-yaml/` (cloned from SourceForge)
 
-## Questions to Explore
+## Recent Improvements
 
-1. Why aren't block scalar modifications being recorded?
-   - Check if `find_scalar_value_range()` is returning correct offsets for block scalars
-   - Debug print the byte ranges being stored in `modifications`
+1. **Refactored codebase** (latest): Split single 772-line file into focused modules
+   - Created `byte_ops.py` for low-level operations
+   - Created `path.py` for path parsing/navigation
+   - Created `serialization.py` for YAML serialization
+   - Created `modifications.py` for modification tracking
+   - Simplified `document.py` (main YAYA class)
+   - All tests still pass (21/21)
 
-2. Why aren't sequence items (that are mappings) being tracked?
-   - Check `replace_in_values()` recursion logic
-   - Verify `_record_modification()` handles this case
-   - Look at `lc.data` structure for sequence items
-
-3. Should we preserve block scalar chomping indicators?
-   - Currently we replace content but might change `|` to `|-`
-   - Need to preserve the original indicator
-
-## Git History
-
-- **Initial commit (3befb06)**: Working implementation with 4/6 tests passing
-  - All core infrastructure in place
-  - Known issues documented
-  - Ready for iteration
+2. **Block scalar handling**: Fixed indentation preservation
+3. **Nested structures**: Fixed tracking of mappings within sequences
+4. **List indentation**: Smart detection and configuration
+5. **Path operations**: Full support for dotted paths with array indices
+6. **Key manipulation**: Can add, replace, and insert keys
