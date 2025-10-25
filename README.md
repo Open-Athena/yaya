@@ -1,8 +1,6 @@
 # yaya
 
-**Y**et **A**nother **Y**AML **A**ST transformation library
-
-Byte-for-byte preserving YAML editor for programmatic modifications.
+Yet Another YAML AST - programmatically transform YAML, preserving whitespace and comments
 
 ## Why?
 
@@ -23,7 +21,7 @@ Most YAML libraries (including ruamel.yaml's round-trip mode) make small formatt
 ## Installation
 
 ```bash
-pip install yaya
+pip install lossless-yaml
 ```
 
 ## Usage

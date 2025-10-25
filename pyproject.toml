@@ -1,5 +1,5 @@
 [project]
-name = "yaya"
+name = "lossless-yaml"
 version = "0.1.0"
 description = "Yet Another YAML AST - programmatically transform YAML, preserving whitespace and comments"
 authors = [
