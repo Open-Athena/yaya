@@ -3,9 +3,10 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ['v*.*.*']
+    tags: ['v*']
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   test:
@@ -34,7 +35,7 @@ jobs:
 
   publish:
     needs: test
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -54,7 +55,15 @@ jobs:
           uv pip install --system build
           python -m build
 
+      - name: Publish to Test PyPI
+        if: github.event_name == 'workflow_dispatch'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          password: ${{ secrets.TEST_PYPI_TOKEN }}
+
       - name: Publish to PyPI
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_TOKEN }}
