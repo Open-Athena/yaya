@@ -46,8 +46,8 @@ class ModificationTracker:
                 start, end = find_scalar_value_range(
                     self.original_bytes, val_line, val_col
                 )
-                new_bytes = self._format_replacement(start, end, value)
-                self.modifications[(start, end)] = new_bytes
+                new_bytes, actual_start, actual_end = self._format_replacement(start, end, value)
+                self.modifications[(actual_start, actual_end)] = new_bytes
         elif isinstance(obj, CommentedSeq) and hasattr(obj, 'lc') and key in obj.lc.data:
             lc_info = obj.lc.data[key]
             if len(lc_info) >= 2:
@@ -55,20 +55,32 @@ class ModificationTracker:
                 start, end = find_scalar_value_range(
                     self.original_bytes, val_line, val_col
                 )
-                new_bytes = self._format_replacement(start, end, value)
-                self.modifications[(start, end)] = new_bytes
+                new_bytes, actual_start, actual_end = self._format_replacement(start, end, value)
+                self.modifications[(actual_start, actual_end)] = new_bytes
 
-    def _format_replacement(self, start: int, end: int, value: str) -> bytes:
+    def _format_replacement(self, start: int, end: int, value: str) -> tuple[bytes, int, int]:
         """
-        Format a replacement value, preserving indentation for block scalars.
+        Format a replacement value, preserving indentation for block scalars
+        and handling quote escaping intelligently.
 
         Args:
-            start: Start byte offset of original value
-            end: End byte offset of original value
+            start: Start byte offset of original value (inside quotes if quoted)
+            end: End byte offset of original value (inside quotes if quoted)
             value: New string value
 
         Returns:
-            Formatted bytes to replace the original range with
+            Tuple of (new_bytes, actual_start, actual_end) where:
+            - new_bytes: The formatted bytes to insert
+            - actual_start: Actual start position (may include opening quote)
+            - actual_end: Actual end position (may include closing quote)
+
+        Note:
+            The start/end range excludes the quotes (see find_scalar_value_range).
+            This method detects the original quote style and applies smart escaping:
+            - Preserves original quote style when possible
+            - Switches quote styles to avoid escaping when beneficial
+            - Only escapes when necessary
+            - Expands the replacement range to include quotes if quote style changes
         """
         original = self.original_bytes[start:end]
 
@@ -96,9 +108,90 @@ class ModificationTracker:
                         # Add indent to all non-empty lines
                         indented_lines.append(' ' * indent + line)
 
-                return '\n'.join(indented_lines).encode('utf-8')
+                return ('\n'.join(indented_lines).encode('utf-8'), start, end)
 
-        return value.encode('utf-8')
+        # Detect original quote style by looking at the character before start
+        original_quote = None
+        if start > 0:
+            char_before = chr(self.original_bytes[start - 1])
+            if char_before in ('"', "'"):
+                original_quote = char_before
+
+        # Apply smart quoting/escaping
+        formatted_value, needs_quote_change = self._apply_smart_quoting(value, original_quote)
+
+        # If quote style needs to change, expand range to include quotes
+        if needs_quote_change and original_quote:
+            # Include opening and closing quotes in replacement
+            actual_start = start - 1  # Include opening quote
+            actual_end = end + 1      # Include closing quote
+            return (formatted_value.encode('utf-8'), actual_start, actual_end)
+        else:
+            # No quote style change needed, just replace the content
+            return (formatted_value.encode('utf-8'), start, end)
+
+    def _apply_smart_quoting(self, value: str, original_quote: str | None) -> tuple[str, bool]:
+        """
+        Apply smart quoting to a value based on its content and original quote style.
+
+        Strategy:
+        1. If originally unquoted → keep unquoted (let YAML parser handle it)
+        2. If originally quoted and no conflict → preserve quote style
+        3. If originally quoted with conflict → switch to avoid escaping or escape
+        4. Otherwise preserve original quote style
+
+        Args:
+            value: The new value to insert
+            original_quote: The original quote character ('"', "'", or None for unquoted)
+
+        Returns:
+            Tuple of (formatted_value, needs_quote_change) where:
+            - formatted_value: The value to insert (with quotes if changing style)
+            - needs_quote_change: True if the quote style needs to change
+                                  (meaning we need to include the quotes in replacement)
+        """
+        has_single = "'" in value
+        has_double = '"' in value
+
+        # If originally unquoted, keep it unquoted
+        # YAML plain scalars can contain quotes without issue in most cases
+        if original_quote is None:
+            return (value, False)
+
+        # Originally quoted - need to handle potential conflicts
+        if not has_single and not has_double:
+            # No conflicts - preserve original quote style
+            return (value, False)
+
+        # Value has quotes - choose best quote style
+        if has_single and not has_double:
+            # Prefer double quotes (no escaping needed)
+            if original_quote == '"':
+                # Already using double quotes - no change needed
+                return (value, False)
+            else:
+                # Need to switch to double quotes
+                return (f'"{value}"', True)
+
+        elif has_double and not has_single:
+            # Prefer single quotes (no escaping needed)
+            if original_quote == "'":
+                # Already using single quotes - no change needed
+                return (value, False)
+            else:
+                # Need to switch to single quotes
+                return (f"'{value}'", True)
+
+        else:
+            # Both types of quotes - use double quotes with escaping
+            # Escape backslashes first, then double quotes
+            escaped = value.replace('\\', '\\\\').replace('"', '\\"')
+            if original_quote == '"':
+                # Already using double quotes - just need escaping, no quote change
+                return (escaped, False)
+            else:
+                # Need to switch to double quotes AND escape
+                return (f'"{escaped}"', True)
 
     def record_insertion(self, position: int, content: bytes):
         """
