@@ -1,6 +1,6 @@
 [project]
 name = "lossless-yaml"
-version = "0.1.0"
+version = "0.1.1"
 description = "Yet Another YAML AST - programmatically transform YAML, preserving whitespace and comments"
 authors = [
     { name = "Ryan Williams", email = "ryan@no.de" }
