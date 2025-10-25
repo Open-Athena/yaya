@@ -372,24 +372,45 @@ class YAYA:
         val_start, val_end = find_scalar_value_range(self.original_bytes, val_line, val_col)
 
         # For non-scalar values (maps, sequences), we need to find the actual end
+        # by recursively finding the last item in nested structures
         value = parent[key]
         if isinstance(value, (CommentedMap, CommentedSeq)):
-            # Find the end by looking for the last item's position
             val_end_line = val_line
-            if hasattr(value, 'lc') and hasattr(value.lc, 'data'):
-                # Get the last item's position
-                if isinstance(value, CommentedMap) and value:
-                    last_key = list(value.keys())[-1]
-                    if last_key in value.lc.data:
-                        last_info = value.lc.data[last_key]
+
+            # Recursively find the deepest last item
+            def find_last_line(obj):
+                """Recursively find the line number of the last item in nested structures."""
+                if isinstance(obj, CommentedMap) and obj and hasattr(obj, 'lc'):
+                    last_key = list(obj.keys())[-1]
+                    if last_key in obj.lc.data:
+                        last_info = obj.lc.data[last_key]
                         if len(last_info) >= 4:
-                            val_end_line = last_info[2]
-                elif isinstance(value, CommentedSeq) and value:
-                    last_idx = len(value) - 1
-                    if last_idx in value.lc.data:
-                        last_info = value.lc.data[last_idx]
+                            # Check if the value is also nested
+                            last_value = obj[last_key]
+                            if isinstance(last_value, (CommentedMap, CommentedSeq)):
+                                # Recurse into nested structure
+                                return find_last_line(last_value)
+                            else:
+                                # Scalar value - return its line
+                                return last_info[2]
+                elif isinstance(obj, CommentedSeq) and obj and hasattr(obj, 'lc'):
+                    last_idx = len(obj) - 1
+                    if last_idx in obj.lc.data:
+                        last_info = obj.lc.data[last_idx]
                         if len(last_info) >= 2:
-                            val_end_line = last_info[0]
+                            # Check if the item is also nested
+                            last_item = obj[last_idx]
+                            if isinstance(last_item, (CommentedMap, CommentedSeq)):
+                                # Recurse into nested structure
+                                return find_last_line(last_item)
+                            else:
+                                # Scalar item - return its line
+                                return last_info[0]
+                return None
+
+            last_line = find_last_line(value)
+            if last_line is not None:
+                val_end_line = last_line
 
             # Find end of that line
             val_end = line_col_to_index(self.original_bytes, val_end_line, 0)
