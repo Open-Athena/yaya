@@ -548,6 +548,70 @@ class YAYA:
             # Update data structure
             parent[final_key] = value
 
+    def _replace_list_item(self, parent: CommentedSeq, index: int, value: Any):
+        """
+        Replace a list item at the given index.
+
+        Args:
+            parent: The CommentedSeq (list) containing the item
+            index: The index of the item to replace
+            value: The new value for the item
+
+        Note:
+            Preserves the list item marker (`-`) and indentation.
+        """
+        if not hasattr(parent, 'lc') or index not in parent.lc.data:
+            # No position info - just update the data structure
+            return
+
+        lc_info = parent.lc.data[index]
+        item_line, item_col = lc_info[0], lc_info[1]
+
+        # Find the byte range of the list item value
+        # item_col points to the start of the value (after "- ")
+        start_idx = line_col_to_index(self.original_bytes, item_line, item_col)
+
+        # Find the end of this item (either next item or end of list)
+        if index + 1 < len(parent) and (index + 1) in parent.lc.data:
+            # There's a next item - end before it
+            next_line, _ = parent.lc.data[index + 1][0], parent.lc.data[index + 1][1]
+            # Go to end of line before next item
+            end_idx = line_col_to_index(self.original_bytes, next_line, 0)
+            # Trim back to end of previous line
+            while end_idx > start_idx and self.original_bytes[end_idx - 1] in b'\n\r':
+                end_idx -= 1
+        else:
+            # Last item in list - find end of line
+            end_idx = start_idx
+            while end_idx < len(self.original_bytes) and self.original_bytes[end_idx] not in b'\n\r':
+                end_idx += 1
+
+        # Serialize the new value
+        if isinstance(value, (dict, list)):
+            yaml_value = serialize_to_yaml(value, indent=0, list_offset=self._get_list_offset())
+            # For multi-line values, need proper indentation
+            if '\n' in yaml_value:
+                # Block style - indent all lines
+                indent_spaces = ' ' * item_col
+                value_lines = yaml_value.split('\n')
+                indented_lines = []
+                for i, line in enumerate(value_lines):
+                    if i == 0:
+                        # First line goes on the same line as the dash
+                        indented_lines.append(line)
+                    elif line.strip():
+                        # Subsequent lines need full indentation
+                        indented_lines.append(f"\n{indent_spaces}{line}")
+                    else:
+                        indented_lines.append('')
+                replacement = ''.join(indented_lines)
+            else:
+                replacement = yaml_value
+        else:
+            replacement = str(value)
+
+        self._tracker.modifications[(start_idx, end_idx)] = replacement.encode('utf-8')
+
     def replace_key(self, path: str, value: Any):
         """
         Replace the value at path with a new value.
@@ -569,8 +633,18 @@ class YAYA:
             self.add_key(path, value, force=True)
             return
 
+        # Handle list items
+        if isinstance(parent, CommentedSeq):
+            if not isinstance(final_key, int):
+                raise TypeError(f"List items must be accessed with integer index, not {type(final_key).__name__}")
+
+            # Replace list item
+            self._replace_list_item(parent, final_key, value)
+            parent[final_key] = value
+            return
+
         if not isinstance(parent, CommentedMap):
-            raise TypeError(f"Can only replace keys in mappings, not {type(parent).__name__}")
+            raise TypeError(f"Can only replace keys in mappings or list items, not {type(parent).__name__}")
 
         # Determine indentation from the key's position
         if hasattr(parent, 'lc') and final_key in parent.lc.data:
