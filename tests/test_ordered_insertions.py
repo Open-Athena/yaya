@@ -31,11 +31,18 @@ def test_insert_key_between_adjacent_keys(tmp_path):
 
     doc.save()
 
-    doc2 = YAYA.load(yaml_file)
-    # Verify order
-    keys = list(doc2.get_path("jobs.build").keys())
-    assert keys.index("if") < keys.index("defaults") < keys.index("steps")
-    assert doc2.get_path("jobs.build.defaults.run.working-directory") == "lib/levanter"
+    result = yaml_file.read_text()
+    expected = """jobs:
+  build:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' }}
+    defaults:
+      run:
+        working-directory: lib/levanter
+    steps:
+      - run: echo test
+"""
+    assert result == expected
 
 
 def test_insert_key_between_not_adjacent(tmp_path):
@@ -123,16 +130,18 @@ def test_insert_key_between_with_nested_prev_key(tmp_path):
 
     doc.save()
 
-    # Verify the structure is correct
-    doc2 = YAYA.load(yaml_file)
-
-    # strategy.matrix should still have both keys
-    matrix_keys = list(doc2.get_path('jobs.unit_tests.strategy.matrix').keys())
-    assert matrix_keys == ['python-version', 'jax-version']
-
-    # defaults.run should only have working-directory
-    defaults_run_keys = list(doc2.get_path('jobs.unit_tests.defaults.run').keys())
-    assert defaults_run_keys == ['working-directory']
-
-    # Verify jax-version wasn't moved
-    assert 'jax-version' not in doc2.get_path('jobs.unit_tests.defaults.run')
+    result = yaml_file.read_text()
+    expected = """jobs:
+  unit_tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+        jax-version: ["0.5.2", "0.6.2"]
+    defaults:
+      run:
+        working-directory: lib/levanter
+    steps:
+      - run: echo test
+"""
+    assert result == expected

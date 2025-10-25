@@ -31,15 +31,17 @@ def test_add_key_after_with_jinja2_expression(tmp_path):
 
     doc.save()
     result = yaml_file.read_text()
-
-    # Verify the jinja2 expression wasn't corrupted
-    doc2 = YAYA.load(yaml_file)
-    if_value = doc2.get_path('jobs.build-package.if')
-    defaults_value = doc2.get_path('jobs.build-package.defaults.run.working-directory')
-
-    assert if_value == "${{  github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'}}"
-    assert defaults_value == "lib/levanter"
-    assert "{{" not in defaults_value  # Ensure no corruption leaked
+    expected = """jobs:
+  build-package:
+    runs-on: ubuntu-latest
+    if: ${{  github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'}}
+    defaults:
+      run:
+        working-directory: lib/levanter
+    steps:
+      - name: Checkout code
+"""
+    assert result == expected
 
 
 def test_replace_in_values_with_jinja2(tmp_path):
@@ -60,13 +62,15 @@ def test_replace_in_values_with_jinja2(tmp_path):
 
     doc.save()
 
-    doc2 = YAYA.load(yaml_file)
-    if_value = doc2.get_path('jobs.test.if')
-    run_value = doc2.get_path('jobs.test.steps[0].run')
-
-    # Both should be updated (replace_in_values is global)
-    assert if_value == "${{ github.ref == 'refs/heads/production' }}"
-    assert run_value == 'echo "production branch"'
+    result = yaml_file.read_text()
+    expected = """jobs:
+  test:
+    runs-on: ubuntu-latest
+    if: ${{ github.ref == 'refs/heads/production' }}
+    steps:
+      - run: echo "production branch"
+"""
+    assert result == expected
 
 
 # NOTE: Additional edge cases like nested jinja2 or complex expressions
@@ -90,9 +94,10 @@ def test_jinja2_with_logical_operators(tmp_path):
 
     doc.save()
 
-    doc2 = YAYA.load(yaml_file)
-    if_value = doc2.get_path("jobs.test.if")
-
-    # Should preserve the && operator and entire expression
-    assert if_value == "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}"
-    assert doc2.get_path("jobs.test.runs-on") == "ubuntu-22.04"
+    result = yaml_file.read_text()
+    expected = """jobs:
+  test:
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-22.04
+"""
+    assert result == expected

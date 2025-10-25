@@ -21,11 +21,15 @@ def test_ensure_key_adds_missing_key(tmp_path):
     added = doc.ensure_key("jobs.test.timeout-minutes", 30)
 
     assert added is True
-    assert doc.get_path("jobs.test.timeout-minutes") == 30
 
     doc.save()
     result = yaml_file.read_text()
-    assert "timeout-minutes: 30" in result
+    expected = """jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+"""
+    assert result == expected
 
 
 def test_ensure_key_skips_existing_key(tmp_path):
@@ -63,7 +67,17 @@ def test_ensure_key_with_nested_structure(tmp_path):
     })
 
     assert added is True
-    assert doc.get_path("jobs.test.defaults.run.working-directory") == "lib/levanter"
+
+    doc.save()
+    result = yaml_file.read_text()
+    expected = """jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lib/levanter
+"""
+    assert result == expected
 
 
 def test_ensure_key_verify_if_exists_matching(tmp_path):
@@ -109,11 +123,17 @@ def test_ensure_key_in_list_item(tmp_path):
     added = doc.ensure_key("steps[0].with.working-directory", "lib/levanter")
 
     assert added is True
-    assert doc.get_path("steps[0].with.working-directory") == "lib/levanter"
 
     doc.save()
     result = yaml_file.read_text()
-    assert "working-directory: lib/levanter" in result
+    expected = """steps:
+  - uses: astral-sh/setup-uv@v6
+    with:
+      version: "0.7.20"
+      enable-cache: true
+      working-directory: lib/levanter
+"""
+    assert result == expected
 
 
 def test_replace_key_scalar_targeted(tmp_path):
@@ -137,15 +157,13 @@ jobs:
 
     doc.save()
     result = yaml_file.read_text()
-
-    # Workflow name should be updated
-    assert result.startswith("name: Levanter - GPT-2 Small Integration Test\n")
-
-    # Step name should be unchanged
-    lines = result.split('\n')
-    step_name_line = [l for l in lines if "- name: Run" in l][0]
-    assert step_name_line.strip() == "- name: Run GPT-2 Small Integration Test"
-    assert "Levanter" not in step_name_line
+    expected = """name: Levanter - GPT-2 Small Integration Test
+jobs:
+  test:
+    steps:
+      - name: Run GPT-2 Small Integration Test
+"""
+    assert result == expected
 
 
 def test_replace_key_vs_replace_in_values(tmp_path):
@@ -200,13 +218,17 @@ def test_ensure_key_deep_nested_path(tmp_path):
     })
 
     assert added is True
-    assert doc.get_path("jobs.test.defaults.run.working-directory") == "lib/levanter"
 
     doc.save()
     result = yaml_file.read_text()
-    assert "defaults:" in result
-    assert "run:" in result
-    assert "working-directory: lib/levanter" in result
+    expected = """jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lib/levanter
+"""
+    assert result == expected
 
 
 def test_ensure_key_multiple_calls_idempotent(tmp_path):
@@ -215,7 +237,7 @@ def test_ensure_key_multiple_calls_idempotent(tmp_path):
     yaml_file.write_text("""steps:
   - uses: astral-sh/setup-uv@v6
     with:
-      version: "0.7.20"
+      version: 0.7.20
 """)
 
     doc = YAYA.load(yaml_file)
@@ -229,11 +251,12 @@ def test_ensure_key_multiple_calls_idempotent(tmp_path):
     assert result2 is False  # Second call sees it exists
     assert result3 is False  # Third call sees it exists
 
-    # Value should be set correctly
-    assert doc.get_path("steps[0].with.working-directory") == "lib/levanter"
-
     doc.save()
     result = yaml_file.read_text()
-
-    # Should only appear once
-    assert result.count("working-directory: lib/levanter") == 1
+    expected = """steps:
+  - uses: astral-sh/setup-uv@v6
+    with:
+      version: 0.7.20
+      working-directory: lib/levanter
+"""
+    assert result == expected
