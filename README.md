@@ -2,21 +2,26 @@
 
 Yet Another YAML AST - programmatically transform YAML, preserving whitespace and comments
 
+[![PyPI version](https://badge.fury.io/py/lossless-yaml.svg)](https://badge.fury.io/py/lossless-yaml)
+
 ## Why?
 
-Ever need to programmatically edit YAML files but want to preserve:
-- All comments
-- Exact whitespace (including trailing spaces)
-- Quote styles
+Programmatically edit YAML at the AST level, so re-serializing doesn't introduce extraneous changes. Preserves:
+
+- Comments
+- Whitespace (including trailing spaces)
+- Quote styles (`'`, `"`, or none)
+  - By default, will switch between `'` and `"` if the other is added to a string (as a literal character) 
 - Block scalar indicators (`|`, `|-`, `|+`)
-- Formatting choices
+- Other formatting choices (e.g. indentation)
 
-Most YAML libraries (including ruamel.yaml's round-trip mode) make small formatting changes when serializing. `yaya` solves this by:
+Other libraries (e.g. [ruamel.yaml]) make formatting changes when serializing. `yaya` avoids this by:
 
-1. Parsing YAML to get the AST with position information
-2. Keeping the original bytes
-3. Applying modifications only to the specific values you change
-4. Leaving everything else untouched
+1. Parsing YAML to get the AST (with position information)
+2. Applying modifications only to specific values or subtrees
+3. Leaving everything else untouched
+
+It also tries to mimic neighboring formatting, when adding values/trees, while also supporting `dict`-like ergonomics and path-based navigation.
 
 ## Installation
 
@@ -59,11 +64,14 @@ doc.assert_absent("jobs.test.defaults")
 doc.assert_present("jobs.test.steps")
 ```
 
-### Replacing Entire Values
+### Replacing Values or Subtrees
 
 ```python
 # Replace a simple value
 doc.replace_key("jobs.test.runs-on", "ubuntu-22.04")
+
+# Replace a list item
+doc.replace_key("build.commands[1]", "uv sync --package marin --frozen")
 
 # Replace with a complex structure
 doc.replace_key("on", {
@@ -79,15 +87,18 @@ doc.replace_key("on", {
 doc.save()
 ```
 
-### Adding New Keys
+### Adding Keys
 
 ```python
-# Add a key after another key (maintains order)
+# Add key after another (maintains order)
 doc.add_key_after("jobs.test.runs-on", "defaults", {
     "run": {
         "working-directory": "lib/myapp"
     }
 })
+
+# Add or replace (convenience method)
+doc.ensure_key("jobs.test.timeout-minutes", 30)
 
 doc.save()
 ```
@@ -124,34 +135,34 @@ No reformatting. No comment loss. Just the change you made.
 
 ## How It Works
 
-1. Uses `ruamel.yaml` to parse YAML and extract position information
-2. Converts line/column positions to byte offsets
-3. Tracks modifications as you change values
-4. Applies byte-level replacements when saving
+1. Parse YAML with [ruamel.yaml] to get AST + position information
+2. Convert line/column positions to byte offsets
+3. Track modifications as you change values
+4. Apply byte-level replacements when saving, leaving everything else untouched
 
 ## Features
 
-- ✅ Byte-for-byte preservation of unchanged content
-- ✅ String replacement (literal and regex)
-- ✅ Path-based navigation (`jobs.test.steps[0].name`)
-- ✅ Replace entire values (scalars, dicts, lists)
-- ✅ Add new keys with proper positioning
-- ✅ Assertions for validation
-- ✅ Comment preservation
-- ✅ Block scalar support
-- ✅ Flow and block style handling
+- Byte-for-byte preservation of unchanged content
+- String replacement (literal and regex)
+- Path-based navigation (`jobs.test.steps[0].name`)
+- Replace values or subtrees (scalars, dicts, lists, list items)
+- Add keys with proper positioning
+- Assertions for validation (`assert_value`, `assert_present`, `assert_absent`)
+- Comment preservation
+- Block scalar support
+- Flow and block style handling
 
 ## Limitations
 
 - Removing keys not yet implemented
-- Binary data in YAML is not supported
-- Adding keys at arbitrary positions (only `add_key_after` currently)
+- Binary data not supported
+- Adding keys only supports `add_key_after` currently (not arbitrary positions)
 
 ## Comparison with ruamel.yaml
 
-`ruamel.yaml` is excellent for round-trip YAML editing and preserves most formatting. However:
+[ruamel.yaml] is excellent for round-trip YAML editing and preserves most formatting. However:
 
-| Feature | ruamel.yaml | yaya |
+| Feature | [ruamel.yaml] | yaya |
 |---------|-------------|---------------|
 | Preserves comments | ✅ | ✅ |
 | Preserves most whitespace | ✅ | ✅ |
@@ -159,7 +170,7 @@ No reformatting. No comment loss. Just the change you made.
 | Trailing whitespace | ❌ | ✅ |
 | Block scalar indicators | ❌ (computes new ones) | ✅ |
 
-`yaya` uses `ruamel.yaml` under the hood but takes a different approach: instead of serializing the AST back to YAML, it modifies the original bytes directly.
+`yaya` uses [ruamel.yaml] under the hood but takes a different approach: instead of serializing the AST back to YAML, it modifies the original bytes directly.
 
 ## License
 
@@ -168,3 +179,5 @@ MIT
 ## Contributing
 
 Issues and pull requests welcome!
+
+[ruamel.yaml]: https://pypi.org/project/ruamel.yaml/
