@@ -2,7 +2,7 @@
 
 Yet Another YAML AST - programmatically transform YAML, preserving whitespace and comments
 
-[![PyPI version](https://badge.fury.io/py/lossless-yaml.svg)](https://badge.fury.io/py/lossless-yaml)
+[![lossless-yaml](https://img.shields.io/pypi/v/lossless-yaml?label=lossless-yaml)](https://pypi.org/project/lossless-yaml/)
 
 ## Why?
 
