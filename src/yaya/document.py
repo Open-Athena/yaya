@@ -818,6 +818,144 @@ class YAYA:
         # Keys are adjacent - use add_key_after
         self.add_key_after(f"{path}.{prev_key}", new_key, value)
 
+    def delete_key(self, path: str) -> bool:
+        """
+        Delete a key from the YAML document while preserving formatting.
+
+        Deletes the entire key-value pair including:
+        - The key name
+        - The colon separator
+        - The value (whether scalar, list, or mapping)
+        - Any inline comments on the same line
+        - The trailing newline
+        - Comment lines immediately preceding the key (no blank lines between)
+
+        Preserves:
+        - Comments separated from the key by blank lines
+        - Comments on following lines (below the deleted key)
+        - Indentation of surrounding keys
+        - Blank lines between sections
+
+        Args:
+            path: Dot-separated path to the key to delete (e.g., "build.mkdocs")
+
+        Returns:
+            True if key was deleted, False if key didn't exist
+
+        Raises:
+            ValueError: If path is invalid or points to root
+
+        Examples:
+            >>> doc = YAYA.load("config.yaml")
+            >>> doc.delete_key("build.mkdocs")  # Delete build.mkdocs key
+            True
+            >>> doc.delete_key("build.python")  # Delete build.python key
+            True
+            >>> doc.delete_key("nonexistent")    # Returns False if key doesn't exist
+            False
+        """
+        # Parse the path
+        parts = parse_path(path) if isinstance(path, str) else path
+
+        # Prevent deleting root
+        if len(parts) == 0:
+            raise ValueError("Cannot delete root")
+
+        # Navigate to parent and key
+        try:
+            parent, _, final_key = navigate_to_path(self.data, path)
+        except KeyError:
+            # Key doesn't exist
+            return False
+
+        # Only support deleting from CommentedMap for now
+        if not isinstance(parent, CommentedMap):
+            raise TypeError(f"Can only delete keys from mappings, not {type(parent).__name__}")
+
+        # Check if key exists in parent
+        if final_key not in parent:
+            return False
+
+        # Find the byte range to delete
+        if not hasattr(parent, 'lc') or final_key not in parent.lc.data:
+            # No position info - just delete from data structure
+            del parent[final_key]
+            return True
+
+        # Get the line info for this key
+        lc_info = parent.lc.data[final_key]
+        key_line = lc_info[0]
+
+        # Get the byte range for this key-value pair
+        start_idx, end_idx = self._find_key_byte_range(parent, final_key)
+
+        # Extend end_idx to include inline comments (rest of the line)
+        while end_idx < len(self.original_bytes) and self.original_bytes[end_idx] != ord('\n'):
+            end_idx += 1
+
+        # Include the trailing newline
+        if end_idx < len(self.original_bytes) and self.original_bytes[end_idx] == ord('\n'):
+            end_idx += 1
+
+        # Check if the next line is blank - if so, delete it too (prevents double blank lines)
+        next_line_start = end_idx
+        next_line_end = next_line_start
+        while next_line_end < len(self.original_bytes) and self.original_bytes[next_line_end] != ord('\n'):
+            next_line_end += 1
+
+        # Check if this line is blank
+        if next_line_start < len(self.original_bytes):
+            next_line_content = self.original_bytes[next_line_start:next_line_end].decode('utf-8')
+            if not next_line_content.strip():
+                # Next line is blank - include it in deletion
+                end_idx = next_line_end
+                if end_idx < len(self.original_bytes) and self.original_bytes[end_idx] == ord('\n'):
+                    end_idx += 1
+
+        # Check for preceding comment lines that should be deleted with this key
+        # Walk backwards from the key line to find comment lines with same indentation
+        current_line = key_line - 1
+        while current_line >= 0:
+            # Find the start of this line
+            line_start = line_col_to_index(self.original_bytes, current_line, 0)
+            line_end = line_start
+            while line_end < len(self.original_bytes) and self.original_bytes[line_end] != ord('\n'):
+                line_end += 1
+
+            # Get the line content
+            line_content = self.original_bytes[line_start:line_end].decode('utf-8')
+
+            # Check if it's a blank line - if so, stop (don't delete comments beyond blank lines)
+            if not line_content.strip():
+                break
+
+            # Check if it's a comment line with same or greater indentation
+            stripped = line_content.lstrip()
+            if stripped.startswith('#'):
+                # This is a comment line - check indentation matches
+                indent = len(line_content) - len(stripped)
+                key_indent = lc_info[1]
+
+                # If comment has same indentation as key, it belongs to this key
+                if indent == key_indent:
+                    # Include this line in deletion
+                    start_idx = line_start
+                    current_line -= 1
+                else:
+                    # Different indentation - stop here
+                    break
+            else:
+                # Not a comment line - stop here
+                break
+
+        # Record the deletion (replace with empty bytes)
+        self._tracker.modifications[(start_idx, end_idx)] = b''
+
+        # Delete from data structure
+        del parent[final_key]
+
+        return True
+
     def save(self, file_path: Path | str | None = None) -> bytes:
         """
         Save the modified YAML, preserving all formatting.
