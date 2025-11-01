@@ -103,6 +103,22 @@ doc.ensure_key("jobs.test.timeout-minutes", 30)
 doc.save()
 ```
 
+### Deleting Keys
+
+```python
+# Delete a key
+doc.delete_key("build.mkdocs")  # Returns True if deleted, False if not found
+
+# Delete nested key
+doc.delete_key("jobs.test.defaults.run.shell")
+
+# Delete multiple keys
+doc.delete_key("build.python")
+doc.delete_key("build.obsolete")
+
+doc.save()
+```
+
 ## Example
 
 Given this YAML file:
@@ -147,6 +163,7 @@ No reformatting. No comment loss. Just the change you made.
 - Path-based navigation (`jobs.test.steps[0].name`)
 - Replace values or subtrees (scalars, dicts, lists, list items)
 - Add keys with proper positioning
+- Delete keys while preserving surrounding content
 - Assertions for validation (`assert_value`, `assert_present`, `assert_absent`)
 - Comment preservation
 - Block scalar support
@@ -154,7 +171,6 @@ No reformatting. No comment loss. Just the change you made.
 
 ## Limitations
 
-- Removing keys not yet implemented
 - Binary data not supported
 - Adding keys only supports `add_key_after` currently (not arbitrary positions)
 
