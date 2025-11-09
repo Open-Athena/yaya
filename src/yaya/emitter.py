@@ -205,7 +205,7 @@ def _serialize_block_sequence(sequence: Sequence) -> bytes:
             item_bytes = _serialize_node(item_node)
 
             # For mappings, we need to inline the first key-value on the same line as the dash
-            if isinstance(item_node, Mapping) and item_node.pairs:
+            if isinstance(item_node, Mapping) and item_node.items:
                 # Split item into lines
                 item_lines = item_bytes.split(b'\n')
                 if item_lines and item_lines[0]:

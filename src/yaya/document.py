@@ -883,12 +883,13 @@ class YAYA:
                     replacement = f"{indent_spaces}{key_str}: {yaml_value}"
 
                 self._tracker.modifications[(start, end)] = replacement.encode('utf-8')
+                # Update the data structure with formatted node (preserves .fa metadata)
+                parent[final_key] = yaml_node
             else:
                 # Scalar value - use existing record_scalar_modification
                 self._tracker.record_scalar_modification(parent, final_key, str(value))
-
-            # Update the data structure
-            parent[final_key] = value
+                # Update the data structure
+                parent[final_key] = value
 
             # Add blank lines if requested
             if blank_lines_before > 0 and isinstance(parent, CommentedMap):

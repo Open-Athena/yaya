@@ -106,8 +106,13 @@ def _convert_mapping(
     """Convert a CommentedMap to Mapping node."""
     items = []
 
-    # Get position of first key to determine style and indent
-    if hasattr(mapping, 'lc') and mapping.lc.data and len(mapping) > 0:
+    # Check if style was set programmatically via .fa (format attribute)
+    if hasattr(mapping, 'fa') and hasattr(mapping.fa, 'flow_style'):
+        # Use programmatically-set style
+        style = 'flow' if mapping.fa.flow_style() else 'block'
+        indent = parent_col  # For newly-created nodes
+    elif hasattr(mapping, 'lc') and mapping.lc.data and len(mapping) > 0:
+        # Extract style from original bytes
         first_key = list(mapping.keys())[0]
         key_line, key_col, val_line, val_col = mapping.lc.data[first_key][:4]
 
@@ -184,8 +189,14 @@ def _convert_sequence(
     """Convert a CommentedSeq to Sequence node."""
     items = []
 
-    # Get position of first item to determine style and indent
-    if hasattr(sequence, 'lc') and sequence.lc.data and len(sequence) > 0:
+    # Check if style was set programmatically via .fa (format attribute)
+    if hasattr(sequence, 'fa') and hasattr(sequence.fa, 'flow_style'):
+        # Use programmatically-set style
+        style = 'flow' if sequence.fa.flow_style() else 'block'
+        indent = parent_col
+        offset = 2  # Default offset for programmatically-created sequences
+    elif hasattr(sequence, 'lc') and sequence.lc.data and len(sequence) > 0:
+        # Extract style from original bytes
         first_item_line, first_item_col = sequence.lc.data[0][:2]
 
         style = extract_sequence_style(original_bytes, first_item_line, first_item_col)
@@ -203,7 +214,7 @@ def _convert_sequence(
         offset = 2
 
     for i, item in enumerate(sequence):
-        if hasattr(sequence, 'lc') and i in sequence.lc.data:
+        if hasattr(sequence, 'lc') and sequence.lc.data and i in sequence.lc.data:
             item_line, item_col = sequence.lc.data[i][:2]
             item_node = _convert_node(item, original_bytes, parent_col=item_col)
         else:
