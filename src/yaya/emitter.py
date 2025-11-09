@@ -59,6 +59,51 @@ def _serialize_node(node: Node) -> bytes:
         raise ValueError(f"Unknown node type: {type(node)}")
 
 
+def _needs_quotes(value: str) -> bool:
+    """
+    Determine if a string value needs quotes in YAML.
+
+    Returns True if the value looks like a float (but not an int), boolean, null,
+    or has special chars. Integers don't need quotes.
+    """
+    if not value:
+        return False
+
+    # Check if it looks like an integer - integers don't need quotes
+    try:
+        int(value)
+        return False  # It's an integer, no quotes needed
+    except ValueError:
+        pass
+
+    # Check if it looks like a float - floats need quotes to preserve as string
+    try:
+        float(value)
+        return True  # Looks like a float (e.g., "3.11"), needs quotes
+    except ValueError:
+        pass
+
+    # Check for YAML keywords
+    if value.lower() in ('true', 'false', 'null', 'yes', 'no', 'on', 'off'):
+        return True
+
+    # Check for special characters that require quoting
+    # Note: - is OK in middle of string, only problematic at start or as standalone
+    special_chars = ':{}[]!#&*?|<>=@`'
+    if any(c in value for c in special_chars):
+        return True
+
+    # Hyphen at start requires quoting (looks like list item)
+    if value.startswith('-'):
+        return True
+
+    # Check if starts with quote or spaces
+    if value[0] in ('"', "'", ' ') or value[-1] == ' ':
+        return True
+
+    return False
+
+
 def _serialize_scalar(scalar: Scalar) -> bytes:
     """Serialize a Scalar node."""
     indent_str = b' ' * scalar.indent
@@ -92,7 +137,13 @@ def _serialize_scalar(scalar: Scalar) -> bytes:
                 result += b'\n'
         return result
     else:  # plain
-        return indent_str + scalar.value.encode('utf-8')
+        # Smart quoting: auto-quote if value needs it
+        if _needs_quotes(scalar.value):
+            # Use single quotes (ruamel's default for auto-quoting)
+            escaped = scalar.value.replace("'", "''")
+            return indent_str + b"'" + escaped.encode('utf-8') + b"'"
+        else:
+            return indent_str + scalar.value.encode('utf-8')
 
 
 def _serialize_mapping(mapping: Mapping) -> bytes:

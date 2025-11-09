@@ -741,6 +741,33 @@ class YAYA:
 
         self._tracker.modifications[(start_idx, end_idx)] = replacement.encode('utf-8')
 
+    def _detect_quote_style_from_original(
+        self,
+        node: Any,
+    ) -> Literal['double', 'single', 'plain'] | None:
+        """
+        Detect the quote style used in the original YAML for a node.
+
+        Args:
+            node: A ruamel node (CommentedSeq, scalar, etc.)
+
+        Returns:
+            Quote style if detectable, None otherwise
+        """
+        from ruamel.yaml.comments import CommentedSeq
+        from .extract import extract_quote_style
+
+        # For sequences, check the first item
+        if isinstance(node, CommentedSeq) and len(node) > 0:
+            if hasattr(node, 'lc') and node.lc.data and 0 in node.lc.data:
+                line, col = node.lc.data[0][:2]
+                return extract_quote_style(self.original_bytes, line, col)
+
+        # For scalars with position info, extract directly
+        # (This would require storing position info with the parent, which we don't have here)
+
+        return None
+
     def replace_key(
         self,
         path: str,

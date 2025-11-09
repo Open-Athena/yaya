@@ -6,6 +6,11 @@ to our clean immutable AST nodes, extracting formatting information from the
 original bytes along the way.
 """
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
+from ruamel.yaml.scalarstring import (
+    DoubleQuotedScalarString,
+    SingleQuotedScalarString,
+    PlainScalarString,
+)
 from .nodes import (
     Node, Scalar, Mapping, Sequence, Comment, BlankLines, Document, InlineCommented, KeyValue
 )
@@ -124,7 +129,7 @@ def _convert_mapping(
 
     for key, value in mapping.items():
         # Get position info for this key-value pair
-        if hasattr(mapping, 'lc') and key in mapping.lc.data:
+        if hasattr(mapping, 'lc') and mapping.lc.data and key in mapping.lc.data:
             key_line, key_col, val_line, val_col = mapping.lc.data[key][:4]
 
             # Convert key
@@ -245,8 +250,16 @@ def _convert_scalar(
         style = 'plain'
     else:
         str_value = str(value)
-        # Extract quote style if we have position info
-        if line is not None and col is not None:
+
+        # Check if this is a programmatically-created scalar with explicit quote style
+        if isinstance(value, DoubleQuotedScalarString):
+            style = 'double'
+        elif isinstance(value, SingleQuotedScalarString):
+            style = 'single'
+        elif isinstance(value, PlainScalarString):
+            style = 'plain'
+        # Extract quote style from original bytes if we have position info
+        elif line is not None and col is not None:
             style = extract_quote_style(original_bytes, line, col)
         else:
             style = 'plain'
