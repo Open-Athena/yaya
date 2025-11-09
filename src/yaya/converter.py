@@ -7,7 +7,7 @@ original bytes along the way.
 """
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from .nodes import (
-    Node, Scalar, Mapping, Sequence, Comment, BlankLines, Document, InlineCommented
+    Node, Scalar, Mapping, Sequence, Comment, BlankLines, Document, InlineCommented, KeyValue
 )
 from .extract import (
     extract_quote_style,
@@ -104,7 +104,7 @@ def _convert_mapping(
     parent_col: int,
 ) -> Mapping:
     """Convert a CommentedMap to Mapping node."""
-    pairs = []
+    items = []
 
     # Get position of first key to determine style and indent
     if hasattr(mapping, 'lc') and mapping.lc.data and len(mapping) > 0:
@@ -134,22 +134,46 @@ def _convert_mapping(
                 # ca_item is [before_key, between_key_value, after_value, end_of_block]
                 if len(ca_item) > 2 and ca_item[2]:
                     comment_token = ca_item[2]
-                    # Split comment into lines
-                    comment_lines = comment_token.value.split('\n')
-                    # First line is inline comment (on same line as value)
-                    if comment_lines and comment_lines[0]:
-                        inline_comment = comment_lines[0].lstrip('#').lstrip()
-                        value_node = InlineCommented(node=value_node, comment=inline_comment)
-                    # Note: Trailing comments (lines after inline) are extracted at document level
+                    comment_value = comment_token.value
 
-            pairs.append((key_node, value_node))
+                    # Check if it's blank lines (just newlines, no # character)
+                    if comment_value and not comment_value.lstrip('\n').startswith('#'):
+                        # Count blank lines
+                        blank_count = comment_value.count('\n')
+                        if blank_count > 0:
+                            # This is blank lines after the value
+                            # We'll add them after creating the KeyValue
+                            pass
+                    else:
+                        # It's a comment
+                        comment_lines = comment_value.split('\n')
+                        # First line is inline comment (on same line as value)
+                        if comment_lines and comment_lines[0]:
+                            inline_comment = comment_lines[0].lstrip('#').lstrip()
+                            value_node = InlineCommented(node=value_node, comment=inline_comment)
+
+            # Create KeyValue node
+            items.append(KeyValue(key=key_node, value=value_node))
+
+            # Add blank lines after this key-value pair
+            if hasattr(mapping, 'ca') and key in mapping.ca.items:
+                ca_item = mapping.ca.items[key]
+                if len(ca_item) > 2 and ca_item[2]:
+                    comment_token = ca_item[2]
+                    comment_value = comment_token.value
+                    # Check if it's blank lines
+                    if comment_value and not comment_value.lstrip('\n').startswith('#'):
+                        blank_count = comment_value.count('\n')
+                        # Subtract 1 because the key-value line already has a newline
+                        if blank_count > 1:
+                            items.append(BlankLines(count=blank_count - 1))
         else:
             # No position info - use defaults
             key_node = Scalar(value=str(key), style='plain', indent=indent)
             value_node = _convert_node(value, original_bytes, parent_col=indent)
-            pairs.append((key_node, value_node))
+            items.append(KeyValue(key=key_node, value=value_node))
 
-    return Mapping(pairs=tuple(pairs), style=style, indent=indent)
+    return Mapping(items=tuple(items), style=style, indent=indent)
 
 
 def _convert_sequence(

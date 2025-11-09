@@ -32,16 +32,29 @@ class Scalar(Node):
 
 
 @dataclass(frozen=True)
+class KeyValue(Node):
+    """
+    A key-value pair in a mapping.
+
+    Attributes:
+        key: Key node (usually a Scalar)
+        value: Value node (any Node type)
+    """
+    key: Node
+    value: Node
+
+
+@dataclass(frozen=True)
 class Mapping(Node):
     """
     A YAML mapping (dictionary).
 
     Attributes:
-        pairs: List of (key, value) pairs where both are Nodes
+        items: List of nodes (KeyValue, BlankLines, Comment)
         style: Flow {k: v} vs block style
         indent: Base indentation for this mapping
     """
-    pairs: tuple[tuple[Node, Node], ...]
+    items: tuple[Node, ...]
     style: Literal['block', 'flow'] = 'block'
     indent: int = 0
 
