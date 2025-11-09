@@ -488,7 +488,10 @@ class YAYA:
         path: str,
         value: Any,
         force: bool = False,
-        style: Literal['auto', 'block', 'flow'] = 'auto'
+        style: Literal['auto', 'block', 'flow'] = 'auto',
+        quote_style: Literal['auto', 'double', 'single', 'plain'] = 'auto',
+        blank_lines_before: int = 0,
+        formatting: dict | None = None,
     ):
         """
         Add a new key at path. If force=True, replaces existing key.
@@ -501,6 +504,9 @@ class YAYA:
                 - 'auto': Use ruamel.yaml's default
                 - 'block': Force block style for collections
                 - 'flow': Force inline/flow style for collections
+            quote_style: How to quote string scalars (default: 'auto')
+            blank_lines_before: Number of blank lines to add before this key (default: 0)
+            formatting: Nested formatting hints for sub-nodes
 
         Raises:
             KeyError: If key exists and force=False, or if parent path doesn't exist
@@ -509,6 +515,7 @@ class YAYA:
         Examples:
             >>> doc.add_key("jobs.new-job", {"runs-on": "ubuntu-latest"})
             >>> doc.add_key("matrix.python-version", ["3.11"], style='flow')
+            >>> doc.add_key("jobs.build.strategy", {...}, blank_lines_before=1)
         """
         parts = parse_path(path) if isinstance(path, str) else path
         if len(parts) == 1:
@@ -542,13 +549,31 @@ class YAYA:
         # For new keys at root or arbitrary position, append at end
         # Serialize the value
         if isinstance(value, (dict, list)):
+            # Build formatted YAML node with proper metadata
+            from .formatting import build_yaml_node
+
+            # Determine flow style for node
+            flow_style = None
+            if style == 'flow':
+                flow_style = True
+            elif style == 'block':
+                flow_style = False
+
+            # Build node with formatting metadata
+            yaml_node = build_yaml_node(
+                value,
+                flow_style=flow_style,
+                quote_style=quote_style,
+                formatting=formatting,
+            )
+
             # For block-style dicts, we need indent=2 to properly nest top-level keys
             # For flow-style or lists, use indent=0
             base_indent = 2 if (isinstance(value, dict) and style != 'flow') else 0
             yaml_value = serialize_to_yaml(
-                value,
+                yaml_node,
                 indent=base_indent,
-                style=style,
+                style='auto',  # Let node's formatting metadata control this
                 list_offset=self._get_list_offset()
             )
 
@@ -599,6 +624,13 @@ class YAYA:
             self._tracker.record_insertion(existing_end, new_content.encode('utf-8'))
             # Update data structure
             parent[final_key] = value
+
+            # Add blank lines if requested
+            if blank_lines_before > 0:
+                parent.yaml_set_comment_before_after_key(
+                    final_key,
+                    before='\n' * blank_lines_before
+                )
         else:
             # Scalar value - also needs to be serialized and inserted
             # Determine indentation
@@ -713,7 +745,10 @@ class YAYA:
         self,
         path: str,
         value: Any,
-        style: Literal['auto', 'block', 'flow', 'preserve'] = 'auto'
+        style: Literal['auto', 'block', 'flow', 'preserve'] = 'auto',
+        quote_style: Literal['auto', 'double', 'single', 'plain'] = 'auto',
+        blank_lines_before: int = 0,
+        formatting: dict | None = None,
     ):
         """
         Replace the value at path with a new value.
@@ -726,6 +761,10 @@ class YAYA:
                 - 'block': Force block style for collections
                 - 'flow': Force inline/flow style for collections (e.g., [1, 2, 3])
                 - 'preserve': Try to match existing style (falls back to 'auto' if no existing value)
+            quote_style: How to quote string scalars (default: 'auto')
+            blank_lines_before: Number of blank lines to add before this key (default: 0)
+            formatting: Nested formatting hints for sub-nodes
+                Example: {'branches': {'flow_style': True}, 'paths[0]': {'quote_style': 'double'}}
 
         Note:
             If the key doesn't exist, adds it (same as add_key with force=True).
@@ -734,6 +773,18 @@ class YAYA:
             >>> doc.replace_key("jobs.test.runs-on", "ubuntu-22.04")
             >>> doc.replace_key("matrix.python-version", ["3.11", "3.12"], style='flow')
             >>> # Produces: python-version: ["3.11", "3.12"]
+
+            >>> # With blank line before
+            >>> doc.replace_key("jobs.build.strategy", {...}, blank_lines_before=1)
+
+            >>> # With nested formatting
+            >>> doc.replace_key("matrix", {
+            ...     "python-version": ["3.11", "3.12"],
+            ...     "os": ["ubuntu", "macos"],
+            ... }, formatting={
+            ...     'python-version': {'flow_style': True},
+            ...     'os': {'flow_style': False},
+            ... })
         """
         # Handle preserve style
         if style == 'preserve':
@@ -747,7 +798,11 @@ class YAYA:
             parent, old_value, final_key = navigate_to_path(self.data, path)
         except KeyError:
             # Key doesn't exist, add it
-            self.add_key(path, value, force=True, style=style)
+            self.add_key(
+                path, value, force=True, style=style,
+                quote_style=quote_style, blank_lines_before=blank_lines_before,
+                formatting=formatting
+            )
             return
 
         # Handle list items
@@ -770,16 +825,36 @@ class YAYA:
 
             # Serialize the new value
             if isinstance(value, (dict, list)):
-                # Convert plain dict/list to YAML
+                # Build formatted YAML node with proper metadata
+                from .formatting import build_yaml_node
+
+                # Determine flow style for node
+                flow_style = None
+                if style == 'flow':
+                    flow_style = True
+                elif style == 'block':
+                    flow_style = False
+                # else 'auto' - let ruamel decide
+
+                # Build node with formatting metadata
+                yaml_node = build_yaml_node(
+                    value,
+                    flow_style=flow_style,
+                    quote_style=quote_style,
+                    formatting=formatting,
+                )
+
                 # Get the proper list offset (respects user override or defaults)
                 use_list_offset = self._get_list_offset_for_serialization()
                 # For block-style dicts, we need indent=2 to properly nest top-level keys
                 # For flow-style or lists, use indent=0
                 base_indent = 2 if (isinstance(value, dict) and style != 'flow') else 0
+
+                # Serialize the formatted node
                 yaml_value = serialize_to_yaml(
-                    value,
+                    yaml_node,
                     indent=base_indent,
-                    style=style,
+                    style='auto',  # Let node's formatting metadata control this
                     list_offset=use_list_offset
                 )
 
@@ -815,12 +890,22 @@ class YAYA:
             # Update the data structure
             parent[final_key] = value
 
+            # Add blank lines if requested
+            if blank_lines_before > 0 and isinstance(parent, CommentedMap):
+                parent.yaml_set_comment_before_after_key(
+                    final_key,
+                    before='\n' * blank_lines_before
+                )
+
     def add_key_after(
         self,
         existing_path: str,
         new_key: str,
         value: Any,
-        style: Literal['auto', 'block', 'flow'] = 'auto'
+        style: Literal['auto', 'block', 'flow'] = 'auto',
+        quote_style: Literal['auto', 'double', 'single', 'plain'] = 'auto',
+        blank_lines_before: int = 0,
+        formatting: dict | None = None,
     ):
         """
         Add a new key after an existing key in a mapping.
@@ -833,6 +918,9 @@ class YAYA:
                 - 'auto': Use ruamel.yaml's default
                 - 'block': Force block style for collections
                 - 'flow': Force inline/flow style for collections
+            quote_style: How to quote string scalars (default: 'auto')
+            blank_lines_before: Number of blank lines to add before this key (default: 0)
+            formatting: Nested formatting hints for sub-nodes
 
         Raises:
             KeyError: If new_key already exists
@@ -842,6 +930,7 @@ class YAYA:
         Examples:
             >>> doc.add_key_after("jobs.test.runs-on", "defaults", {"run": {"shell": "bash"}})
             >>> doc.add_key_after("strategy", "matrix", {"python-version": ["3.11"]}, style='flow')
+            >>> doc.add_key_after("runs-on", "strategy", {...}, blank_lines_before=1)
         """
         # Navigate to the parent containing the existing key
         parent, _, existing_key = navigate_to_path(self.data, existing_path)

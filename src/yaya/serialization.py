@@ -99,13 +99,17 @@ def serialize_to_yaml(
     """
     Serialize a Python value to YAML string with specific indentation.
 
+    If value is a CommentedMap/CommentedSeq with formatting metadata
+    (from build_yaml_node()), that formatting is preserved.
+
     Args:
-        value: The value to serialize (dict, list, scalar)
+        value: The value to serialize (dict, list, scalar, or CommentedMap/CommentedSeq)
         indent: Additional indentation to add to all lines (in spaces)
         style: How to format collections:
             - 'auto': Use ruamel.yaml's default (block for mappings, varies for sequences)
             - 'block': Force block style for collections
             - 'flow': Force inline/flow style for collections (e.g., [1, 2, 3])
+            Note: Ignored if value is a pre-formatted CommentedMap/CommentedSeq
         list_offset: Offset for list items from parent key (0=aligned, 2=indented).
                     If None, uses YAYA_LIST_OFFSET environment variable or defaults to 2.
 
@@ -118,6 +122,12 @@ def serialize_to_yaml(
         >>> serialize_to_yaml(['a', 'b'], list_offset=2)
         '- a\\n- b'
         >>> serialize_to_yaml(['a', 'b'], style='flow')
+        '[a, b]'
+
+        >>> # With pre-formatted node
+        >>> from yaya.formatting import build_yaml_node
+        >>> node = build_yaml_node(['a', 'b'], flow_style=True)
+        >>> serialize_to_yaml(node)  # Respects flow_style setting
         '[a, b]'
 
     Environment Variables:
@@ -138,12 +148,17 @@ def serialize_to_yaml(
 
     yaml = YAML()
 
-    # Configure flow style
-    if style == 'flow':
-        yaml.default_flow_style = True
-    elif style == 'block':
-        yaml.default_flow_style = False
-    # else 'auto' - let ruamel.yaml decide (default_flow_style is None)
+    # Check if value is a pre-formatted node (has formatting metadata)
+    is_formatted_node = isinstance(value, (CommentedMap, CommentedSeq))
+
+    # Configure flow style ONLY if not a pre-formatted node
+    # Pre-formatted nodes have their own .fa (format attribute) settings
+    if not is_formatted_node:
+        if style == 'flow':
+            yaml.default_flow_style = True
+        elif style == 'block':
+            yaml.default_flow_style = False
+        # else 'auto' - let ruamel.yaml decide (default_flow_style is None)
 
     yaml.width = 4096
     # mapping=2: indent nested mappings by 2 spaces
