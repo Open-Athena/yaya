@@ -7,7 +7,7 @@ original bytes along the way.
 """
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from .nodes import (
-    Node, Scalar, Mapping, Sequence, Comment, BlankLines, Document
+    Node, Scalar, Mapping, Sequence, Comment, BlankLines, Document, InlineCommented
 )
 from .extract import (
     extract_quote_style,
@@ -49,6 +49,23 @@ def convert_to_clean_ast(
     # Convert main content
     main_node = _convert_node(ruamel_data, original_bytes, parent_col=0)
     nodes.append(main_node)
+
+    # Extract trailing comments from the root mapping
+    if isinstance(ruamel_data, CommentedMap) and hasattr(ruamel_data, 'ca'):
+        # Check each key for trailing comments
+        for key in ruamel_data.keys():
+            if key in ruamel_data.ca.items:
+                ca_item = ruamel_data.ca.items[key]
+                if len(ca_item) > 2 and ca_item[2]:
+                    comment_token = ca_item[2]
+                    comment_lines = comment_token.value.split('\n')
+                    # Skip first line (inline comment, already handled)
+                    for i, line in enumerate(comment_lines[1:]):
+                        if line.strip():
+                            comment_text = line.lstrip('#').lstrip()
+                            comment_line = comment_token.start_mark.line + 1 + i
+                            indent = extract_indentation(original_bytes, comment_line)
+                            nodes.append(Comment(text=comment_text, indent=indent))
 
     return Document(nodes=tuple(nodes))
 
@@ -110,6 +127,20 @@ def _convert_mapping(
 
             # Convert value (pass position info for scalars)
             value_node = _convert_node(value, original_bytes, parent_col=key_col, line=val_line, col=val_col)
+
+            # Check for inline comment
+            if hasattr(mapping, 'ca') and key in mapping.ca.items:
+                ca_item = mapping.ca.items[key]
+                # ca_item is [before_key, between_key_value, after_value, end_of_block]
+                if len(ca_item) > 2 and ca_item[2]:
+                    comment_token = ca_item[2]
+                    # Split comment into lines
+                    comment_lines = comment_token.value.split('\n')
+                    # First line is inline comment (on same line as value)
+                    if comment_lines and comment_lines[0]:
+                        inline_comment = comment_lines[0].lstrip('#').lstrip()
+                        value_node = InlineCommented(node=value_node, comment=inline_comment)
+                    # Note: Trailing comments (lines after inline) are extracted at document level
 
             pairs.append((key_node, value_node))
         else:

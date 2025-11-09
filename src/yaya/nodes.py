@@ -77,6 +77,19 @@ class Comment(Node):
 
 
 @dataclass(frozen=True)
+class InlineCommented(Node):
+    """
+    Wrapper for a node with an inline comment.
+
+    Attributes:
+        node: The actual node (Scalar, Mapping, etc.)
+        comment: Comment text without the '#' prefix
+    """
+    node: Node
+    comment: str
+
+
+@dataclass(frozen=True)
 class BlankLines(Node):
     """
     One or more blank lines.

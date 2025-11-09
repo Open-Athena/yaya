@@ -1206,7 +1206,12 @@ class YAYA:
         """
         target_path = Path(file_path) if file_path else self.file_path
 
-        final_bytes = self._tracker.apply_modifications()
+        # Use clean AST architecture for truly lossless serialization
+        from .converter import convert_to_clean_ast
+        from .emitter import serialize
+
+        clean_ast = convert_to_clean_ast(self.data, self.original_bytes)
+        final_bytes = serialize(clean_ast)
 
         if target_path:
             target_path.write_bytes(final_bytes)

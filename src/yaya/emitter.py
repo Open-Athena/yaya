@@ -4,7 +4,7 @@ Lossless YAML serializer for clean AST.
 This module serializes our clean AST back to YAML bytes, preserving all
 formatting details (quotes, indentation, comments, blank lines).
 """
-from .nodes import Node, Scalar, Mapping, Sequence, Comment, BlankLines, Document
+from .nodes import Node, Scalar, Mapping, Sequence, Comment, BlankLines, Document, InlineCommented
 
 
 def serialize(node: Node) -> bytes:
@@ -41,7 +41,9 @@ def _serialize_document(doc: Document) -> bytes:
 
 def _serialize_node(node: Node) -> bytes:
     """Serialize any node to bytes."""
-    if isinstance(node, Scalar):
+    if isinstance(node, InlineCommented):
+        return _serialize_inline_commented(node)
+    elif isinstance(node, Scalar):
         return _serialize_scalar(node)
     elif isinstance(node, Mapping):
         return _serialize_mapping(node)
@@ -110,17 +112,28 @@ def _serialize_block_mapping(mapping: Mapping) -> bytes:
         # Add colon
         colon = b':'
 
+        # Check if value has inline comment
+        inline_comment = None
+        actual_value_node = value_node
+        if isinstance(value_node, InlineCommented):
+            inline_comment = value_node.comment
+            actual_value_node = value_node.node
+
         # Serialize value
-        if isinstance(value_node, (Mapping, Sequence)):
+        if isinstance(actual_value_node, (Mapping, Sequence)):
             # Complex value - goes on next line
             parts.append(key_bytes + colon + b'\n')
-            parts.append(_serialize_node(value_node))
+            parts.append(_serialize_node(actual_value_node))
         else:
             # Scalar value - goes on same line
-            value_bytes = _serialize_node(value_node)
+            value_bytes = _serialize_node(actual_value_node)
             # Remove indent from value (it's on same line as key)
             value_str = value_bytes.lstrip()
-            parts.append(key_bytes + colon + b' ' + value_str + b'\n')
+            line = key_bytes + colon + b' ' + value_str
+            # Add inline comment if present
+            if inline_comment:
+                line += b'  # ' + inline_comment.encode('utf-8')
+            parts.append(line + b'\n')
 
     return b''.join(parts)
 
@@ -217,3 +230,15 @@ def _serialize_comment(comment: Comment) -> bytes:
 def _serialize_blank_lines(blank_lines: BlankLines) -> bytes:
     """Serialize blank lines."""
     return b'\n' * blank_lines.count
+
+
+def _serialize_inline_commented(inline_commented: InlineCommented) -> bytes:
+    """
+    Serialize an InlineCommented node.
+
+    Note: This returns the node content WITHOUT the inline comment.
+    The comment is added by the parent (Mapping serializer) since it needs
+    to be on the same line as the key-value pair.
+    """
+    # Just serialize the wrapped node
+    return _serialize_node(inline_commented.node)
