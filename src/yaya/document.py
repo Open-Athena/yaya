@@ -107,6 +107,51 @@ class YAYA:
         else:
             raise ValueError(f"Invalid offset: {offset}. Use 0, 2, 'aligned', or 'indented'")
 
+    def _detect_style(self, value: Any) -> Literal['block', 'flow']:
+        """
+        Detect the style of an existing value by checking original bytes.
+
+        Args:
+            value: The value to detect style for (must be a list or dict)
+
+        Returns:
+            'flow' if the value uses flow style ([...] or {...}), 'block' otherwise
+
+        Note:
+            This is a best-effort detection. If uncertain, returns 'block'.
+        """
+        if not isinstance(value, (list, dict, CommentedSeq, CommentedMap)):
+            # Scalar values don't have a style
+            return 'block'
+
+        # For CommentedSeq/CommentedMap, check if they have position info
+        if isinstance(value, (CommentedSeq, CommentedMap)) and hasattr(value, 'lc'):
+            if isinstance(value, CommentedSeq) and len(value) > 0:
+                # Check if first item has position info
+                if 0 in value.lc.data:
+                    first_line, first_col = value.lc.data[0][0], value.lc.data[0][1]
+                    # Find the start of this line to look for opening bracket
+                    line_start = line_col_to_index(self.original_bytes, first_line, 0)
+                    # Look backward from first_col to see if there's a '[' on the same line
+                    search_start = line_start
+                    search_end = line_col_to_index(self.original_bytes, first_line, first_col)
+                    line_bytes = self.original_bytes[search_start:search_end]
+                    if b'[' in line_bytes:
+                        return 'flow'
+            elif isinstance(value, CommentedMap) and len(value) > 0:
+                # Similar check for mappings with '{'
+                first_key = list(value.keys())[0]
+                if first_key in value.lc.data:
+                    key_line, key_col = value.lc.data[first_key][0], value.lc.data[first_key][1]
+                    line_start = line_col_to_index(self.original_bytes, key_line, 0)
+                    search_end = line_col_to_index(self.original_bytes, key_line, key_col)
+                    line_bytes = self.original_bytes[line_start:search_end]
+                    if b'{' in line_bytes:
+                        return 'flow'
+
+        # Default to block style
+        return 'block'
+
     def _get_list_offset(self) -> int | None:
         """
         Get the list offset to use, considering overrides and detection.
@@ -419,7 +464,13 @@ class YAYA:
 
         return key_start_idx, val_end
 
-    def add_key(self, path: str, value: Any, force: bool = False):
+    def add_key(
+        self,
+        path: str,
+        value: Any,
+        force: bool = False,
+        style: Literal['auto', 'block', 'flow'] = 'auto'
+    ):
         """
         Add a new key at path. If force=True, replaces existing key.
 
@@ -427,6 +478,10 @@ class YAYA:
             path: Dotted path where key should be added
             value: Value to set
             force: If True, overwrites existing key
+            style: How to format collections:
+                - 'auto': Use ruamel.yaml's default
+                - 'block': Force block style for collections
+                - 'flow': Force inline/flow style for collections
 
         Raises:
             KeyError: If key exists and force=False, or if parent path doesn't exist
@@ -434,6 +489,7 @@ class YAYA:
 
         Examples:
             >>> doc.add_key("jobs.new-job", {"runs-on": "ubuntu-latest"})
+            >>> doc.add_key("matrix.python-version", ["3.11"], style='flow')
         """
         parts = parse_path(path) if isinstance(path, str) else path
         if len(parts) == 1:
@@ -467,7 +523,12 @@ class YAYA:
         # For new keys at root or arbitrary position, append at end
         # Serialize the value
         if isinstance(value, (dict, list)):
-            yaml_value = serialize_to_yaml(value, indent=0, list_offset=self._get_list_offset())
+            yaml_value = serialize_to_yaml(
+                value,
+                indent=0,
+                style=style,
+                list_offset=self._get_list_offset()
+            )
 
             # Determine indentation
             if hasattr(parent, 'lc') and len(parent) > 0:
@@ -548,7 +609,13 @@ class YAYA:
             # Update data structure
             parent[final_key] = value
 
-    def _replace_list_item(self, parent: CommentedSeq, index: int, value: Any):
+    def _replace_list_item(
+        self,
+        parent: CommentedSeq,
+        index: int,
+        value: Any,
+        style: Literal['auto', 'block', 'flow'] = 'auto'
+    ):
         """
         Replace a list item at the given index.
 
@@ -556,6 +623,7 @@ class YAYA:
             parent: The CommentedSeq (list) containing the item
             index: The index of the item to replace
             value: The new value for the item
+            style: How to format collections in the value
 
         Note:
             Preserves the list item marker (`-`) and indentation.
@@ -588,7 +656,12 @@ class YAYA:
 
         # Serialize the new value
         if isinstance(value, (dict, list)):
-            yaml_value = serialize_to_yaml(value, indent=0, list_offset=self._get_list_offset())
+            yaml_value = serialize_to_yaml(
+                value,
+                indent=0,
+                style=style,
+                list_offset=self._get_list_offset()
+            )
             # For multi-line values, need proper indentation
             if '\n' in yaml_value:
                 # Block style - indent all lines
@@ -612,25 +685,45 @@ class YAYA:
 
         self._tracker.modifications[(start_idx, end_idx)] = replacement.encode('utf-8')
 
-    def replace_key(self, path: str, value: Any):
+    def replace_key(
+        self,
+        path: str,
+        value: Any,
+        style: Literal['auto', 'block', 'flow', 'preserve'] = 'auto'
+    ):
         """
         Replace the value at path with a new value.
 
         Args:
             path: Dotted path to key
             value: New value (can be dict, list, or scalar)
+            style: How to format collections:
+                - 'auto': Use ruamel.yaml's default (current behavior)
+                - 'block': Force block style for collections
+                - 'flow': Force inline/flow style for collections (e.g., [1, 2, 3])
+                - 'preserve': Try to match existing style (falls back to 'auto' if no existing value)
 
         Note:
             If the key doesn't exist, adds it (same as add_key with force=True).
 
         Examples:
             >>> doc.replace_key("jobs.test.runs-on", "ubuntu-22.04")
+            >>> doc.replace_key("matrix.python-version", ["3.11", "3.12"], style='flow')
+            >>> # Produces: python-version: ["3.11", "3.12"]
         """
+        # Handle preserve style
+        if style == 'preserve':
+            try:
+                old_value = self.get_path(path)
+                style = self._detect_style(old_value)
+            except KeyError:
+                style = 'auto'
+
         try:
             parent, old_value, final_key = navigate_to_path(self.data, path)
         except KeyError:
             # Key doesn't exist, add it
-            self.add_key(path, value, force=True)
+            self.add_key(path, value, force=True, style=style)
             return
 
         # Handle list items
@@ -639,7 +732,7 @@ class YAYA:
                 raise TypeError(f"List items must be accessed with integer index, not {type(final_key).__name__}")
 
             # Replace list item
-            self._replace_list_item(parent, final_key, value)
+            self._replace_list_item(parent, final_key, value, style=style)
             parent[final_key] = value
             return
 
@@ -654,7 +747,13 @@ class YAYA:
             # Serialize the new value
             if isinstance(value, (dict, list)):
                 # Convert plain dict/list to YAML
-                yaml_value = serialize_to_yaml(value, indent=0, list_offset=self._get_list_offset())
+                # Use list_offset=0 so we can control indentation ourselves
+                yaml_value = serialize_to_yaml(
+                    value,
+                    indent=0,
+                    style=style,
+                    list_offset=0 if style in ('block', 'auto') else self._get_list_offset()
+                )
 
                 # Find the byte range to replace
                 start, end = self._find_key_byte_range(parent, final_key)
@@ -668,9 +767,13 @@ class YAYA:
                     # Block style - value starts on next line
                     replacement_lines = [f"{indent_spaces}{key_str}:"]
                     value_lines = yaml_value.split('\n')
+                    # For explicit block/auto style, use standard offset (2)
+                    # Don't use detected offset which may be from flow-style original
+                    list_offset = 2
                     for line in value_lines:
                         if line.strip():
-                            replacement_lines.append(f"{indent_spaces}  {line}")
+                            # Add key indentation + list offset + line content
+                            replacement_lines.append(f"{indent_spaces}{' ' * list_offset}{line}")
                         else:
                             replacement_lines.append('')
                     replacement = '\n'.join(replacement_lines)
@@ -686,7 +789,13 @@ class YAYA:
             # Update the data structure
             parent[final_key] = value
 
-    def add_key_after(self, existing_path: str, new_key: str, value: Any):
+    def add_key_after(
+        self,
+        existing_path: str,
+        new_key: str,
+        value: Any,
+        style: Literal['auto', 'block', 'flow'] = 'auto'
+    ):
         """
         Add a new key after an existing key in a mapping.
 
@@ -694,6 +803,10 @@ class YAYA:
             existing_path: Path to existing key to insert after
             new_key: Name of new key to add
             value: Value for new key
+            style: How to format collections:
+                - 'auto': Use ruamel.yaml's default
+                - 'block': Force block style for collections
+                - 'flow': Force inline/flow style for collections
 
         Raises:
             KeyError: If new_key already exists
@@ -702,6 +815,7 @@ class YAYA:
 
         Examples:
             >>> doc.add_key_after("jobs.test.runs-on", "defaults", {"run": {"shell": "bash"}})
+            >>> doc.add_key_after("strategy", "matrix", {"python-version": ["3.11"]}, style='flow')
         """
         # Navigate to the parent containing the existing key
         parent, _, existing_key = navigate_to_path(self.data, existing_path)
@@ -723,7 +837,12 @@ class YAYA:
         _, existing_end = self._find_key_byte_range(parent, existing_key)
 
         # Serialize the new value
-        yaml_value = serialize_to_yaml(value, indent=0, list_offset=self._get_list_offset())
+        yaml_value = serialize_to_yaml(
+            value,
+            indent=0,
+            style=style,
+            list_offset=self._get_list_offset()
+        )
 
         # Build the new key-value pair
         indent_spaces = ' ' * key_col

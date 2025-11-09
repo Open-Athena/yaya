@@ -93,7 +93,7 @@ def detect_list_indentation(data: Any, original_bytes: bytes) -> int | None:
 def serialize_to_yaml(
     value: Any,
     indent: int = 0,
-    style: str = 'block',
+    style: Literal['auto', 'block', 'flow'] = 'auto',
     list_offset: int | None = None
 ) -> str:
     """
@@ -102,7 +102,10 @@ def serialize_to_yaml(
     Args:
         value: The value to serialize (dict, list, scalar)
         indent: Additional indentation to add to all lines (in spaces)
-        style: 'block' or 'flow' style
+        style: How to format collections:
+            - 'auto': Use ruamel.yaml's default (block for mappings, varies for sequences)
+            - 'block': Force block style for collections
+            - 'flow': Force inline/flow style for collections (e.g., [1, 2, 3])
         list_offset: Offset for list items from parent key (0=aligned, 2=indented).
                     If None, uses YAYA_LIST_OFFSET environment variable or defaults to 2.
 
@@ -114,6 +117,8 @@ def serialize_to_yaml(
         'key: value'
         >>> serialize_to_yaml(['a', 'b'], list_offset=2)
         '- a\\n- b'
+        >>> serialize_to_yaml(['a', 'b'], style='flow')
+        '[a, b]'
 
     Environment Variables:
         YAYA_LIST_OFFSET: Default list offset if not specified (integer)
@@ -132,7 +137,14 @@ def serialize_to_yaml(
             list_offset = 2
 
     yaml = YAML()
-    yaml.default_flow_style = (style == 'flow')
+
+    # Configure flow style
+    if style == 'flow':
+        yaml.default_flow_style = True
+    elif style == 'block':
+        yaml.default_flow_style = False
+    # else 'auto' - let ruamel.yaml decide (default_flow_style is None)
+
     yaml.width = 4096
     # mapping=2: indent nested mappings by 2 spaces
     # sequence=2: indent list items by 2 spaces
