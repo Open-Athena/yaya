@@ -88,9 +88,26 @@ def _needs_quotes(value: str) -> bool:
         return True
 
     # Check for special characters that require quoting
-    # Note: - is OK in middle of string, only problematic at start or as standalone
-    special_chars = ':{}[]!#&*?|<>=@`'
-    if any(c in value for c in special_chars):
+    # Note: Some chars are only problematic in certain positions:
+    # - { and [ only at start (could be flow collection)
+    # - : anywhere (could be key-value separator)
+    # - # at start or after space (could be comment)
+    # - others need context-specific handling
+
+    # Check first character
+    first_char = value[0]
+    if first_char in '{[':
+        return True  # Flow collection indicators at start
+    if first_char == '#':
+        return True  # Comment indicator
+
+    # Check for chars that are problematic anywhere
+    problematic_anywhere = ':@`'
+    if any(c in value for c in problematic_anywhere):
+        return True
+
+    # Check for # after space (comment)
+    if ' #' in value:
         return True
 
     # Hyphen at start requires quoting (looks like list item)
