@@ -111,18 +111,24 @@ def _convert_mapping(
     """Convert a CommentedMap to Mapping node."""
     items = []
 
-    # Check if style was set programmatically via .fa (format attribute)
-    if hasattr(mapping, 'fa') and hasattr(mapping.fa, 'flow_style'):
-        # Use programmatically-set style
-        style = 'flow' if mapping.fa.flow_style() else 'block'
-        indent = parent_col  # For newly-created nodes
-    elif hasattr(mapping, 'lc') and mapping.lc.data and len(mapping) > 0:
+    # First try to extract from original bytes (if mapping has position data)
+    if hasattr(mapping, 'lc') and mapping.lc.data and len(mapping) > 0:
         # Extract style from original bytes
         first_key = list(mapping.keys())[0]
-        key_line, key_col, val_line, val_col = mapping.lc.data[first_key][:4]
-
-        style = extract_mapping_style(original_bytes, val_line, val_col)
-        indent = extract_indentation(original_bytes, key_line)
+        # Only use first key if it has position data
+        if first_key in mapping.lc.data:
+            key_line, key_col, val_line, val_col = mapping.lc.data[first_key][:4]
+            style = extract_mapping_style(original_bytes, val_line, val_col)
+            indent = extract_indentation(original_bytes, key_line)
+        else:
+            # First key is programmatic, fall back to parent_col
+            style = 'block'
+            indent = parent_col
+    # Check if style was set programmatically via .fa (for fully programmatic nodes)
+    elif hasattr(mapping, 'fa') and hasattr(mapping.fa, 'flow_style'):
+        # Use programmatically-set style (for nodes without any position data)
+        style = 'flow' if mapping.fa.flow_style() else 'block'
+        indent = parent_col
     else:
         style = 'block'
         indent = parent_col
