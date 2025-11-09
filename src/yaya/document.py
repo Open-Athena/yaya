@@ -152,6 +152,25 @@ class YAYA:
         # Default to block style
         return 'block'
 
+    def _get_list_offset_for_serialization(self) -> int:
+        """
+        Get the list offset to use for serialize_to_yaml().
+
+        Returns:
+            List offset value, preferring user override, defaulting to 2
+
+        Note:
+            Unlike _get_list_offset(), this never returns None and always
+            returns a safe default (2) if no override is set, to avoid using
+            potentially incorrect auto-detected offsets from flow-style originals.
+        """
+        if self._list_offset_override is not None:
+            return self._list_offset_override
+
+        # Default to 2 (standard indented style)
+        # Don't use auto-detected offset which may be wrong for flow-style documents
+        return 2
+
     def _get_list_offset(self) -> int | None:
         """
         Get the list offset to use, considering overrides and detection.
@@ -523,9 +542,12 @@ class YAYA:
         # For new keys at root or arbitrary position, append at end
         # Serialize the value
         if isinstance(value, (dict, list)):
+            # For block-style dicts, we need indent=2 to properly nest top-level keys
+            # For flow-style or lists, use indent=0
+            base_indent = 2 if (isinstance(value, dict) and style != 'flow') else 0
             yaml_value = serialize_to_yaml(
                 value,
-                indent=0,
+                indent=base_indent,
                 style=style,
                 list_offset=self._get_list_offset()
             )
@@ -562,9 +584,11 @@ class YAYA:
                 # Block style
                 new_lines = [f"\n{indent_spaces}{key_str}:"]
                 value_lines = yaml_value.split('\n')
+                # serialize_to_yaml() already applied proper indentation (indent=2 for dicts)
+                # We just need to add the base key indentation to match nesting level
                 for line in value_lines:
                     if line.strip():
-                        new_lines.append(f"{indent_spaces}  {line}")
+                        new_lines.append(f"{indent_spaces}{line}")
                     else:
                         new_lines.append('')
                 new_content = '\n'.join(new_lines)
@@ -747,12 +771,16 @@ class YAYA:
             # Serialize the new value
             if isinstance(value, (dict, list)):
                 # Convert plain dict/list to YAML
-                # Use list_offset=0 so we can control indentation ourselves
+                # Get the proper list offset (respects user override or defaults)
+                use_list_offset = self._get_list_offset_for_serialization()
+                # For block-style dicts, we need indent=2 to properly nest top-level keys
+                # For flow-style or lists, use indent=0
+                base_indent = 2 if (isinstance(value, dict) and style != 'flow') else 0
                 yaml_value = serialize_to_yaml(
                     value,
-                    indent=0,
+                    indent=base_indent,
                     style=style,
-                    list_offset=0 if style in ('block', 'auto') else self._get_list_offset()
+                    list_offset=use_list_offset
                 )
 
                 # Find the byte range to replace
@@ -767,13 +795,11 @@ class YAYA:
                     # Block style - value starts on next line
                     replacement_lines = [f"{indent_spaces}{key_str}:"]
                     value_lines = yaml_value.split('\n')
-                    # For explicit block/auto style, use standard offset (2)
-                    # Don't use detected offset which may be from flow-style original
-                    list_offset = 2
+                    # serialize_to_yaml() already applied proper list indentation
+                    # We just need to add the base key indentation to match nesting level
                     for line in value_lines:
                         if line.strip():
-                            # Add key indentation + list offset + line content
-                            replacement_lines.append(f"{indent_spaces}{' ' * list_offset}{line}")
+                            replacement_lines.append(f"{indent_spaces}{line}")
                         else:
                             replacement_lines.append('')
                     replacement = '\n'.join(replacement_lines)
