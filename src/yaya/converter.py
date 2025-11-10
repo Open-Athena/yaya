@@ -6,6 +6,9 @@ to our clean immutable AST nodes, extracting formatting information from the
 original bytes along the way.
 """
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
+
+# Thread-local storage for default list offset during conversion
+_default_list_offset = 2
 from ruamel.yaml.scalarstring import (
     DoubleQuotedScalarString,
     SingleQuotedScalarString,
@@ -26,6 +29,7 @@ from .extract import (
 def convert_to_clean_ast(
     ruamel_data: any,
     original_bytes: bytes,
+    default_list_offset: int = 2,
 ) -> Document:
     """
     Convert ruamel.yaml AST to clean yaya AST.
@@ -33,10 +37,14 @@ def convert_to_clean_ast(
     Args:
         ruamel_data: Parsed data from ruamel.yaml
         original_bytes: Original file bytes (for extracting formatting)
+        default_list_offset: Default offset for programmatically-created lists (default: 2)
 
     Returns:
         Document node containing the clean AST
     """
+    global _default_list_offset
+    _default_list_offset = default_list_offset
+
     nodes = []
 
     # Extract leading comments (in ca.comment[1])
@@ -238,7 +246,7 @@ def _convert_sequence(
         # Use programmatically-set style
         style = 'flow' if sequence.fa.flow_style() else 'block'
         indent = parent_col
-        offset = 2  # Default offset for programmatically-created sequences
+        offset = _default_list_offset  # Use detected offset from document
     elif hasattr(sequence, 'lc') and sequence.lc.data and len(sequence) > 0:
         # Extract style from original bytes
         first_item_line, first_item_col = sequence.lc.data[0][:2]
@@ -255,7 +263,7 @@ def _convert_sequence(
     else:
         style = 'block'
         indent = parent_col
-        offset = 2
+        offset = _default_list_offset  # Use detected offset from document
 
     # Extract leading comments (before first item)
     if hasattr(sequence, 'ca') and sequence.ca.comment and sequence.ca.comment[1]:
