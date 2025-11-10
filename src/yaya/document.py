@@ -630,7 +630,7 @@ class YAYA:
             if blank_lines_before > 0:
                 parent.yaml_set_comment_before_after_key(
                     final_key,
-                    before='\n' * (blank_lines_before + 1)
+                    before='\n' * blank_lines_before
                 )
         else:
             # Scalar value - also needs to be serialized and inserted
@@ -671,7 +671,7 @@ class YAYA:
             if blank_lines_before > 0:
                 parent.yaml_set_comment_before_after_key(
                     final_key,
-                    before='\n' * (blank_lines_before + 1)
+                    before='\n' * blank_lines_before
                 )
 
     def _replace_list_item(
@@ -1081,7 +1081,7 @@ class YAYA:
         if blank_lines_before > 0:
             parent.yaml_set_comment_before_after_key(
                 new_key,
-                before='\n' * ((blank_lines_before + 1) + 1)
+                before='\n' * (blank_lines_before + 1)
             )
 
     def insert_key_between(
