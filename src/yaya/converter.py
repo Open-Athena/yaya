@@ -127,11 +127,12 @@ def _convert_mapping(
     # Check if style was set programmatically via .fa (for fully programmatic nodes)
     elif hasattr(mapping, 'fa') and hasattr(mapping.fa, 'flow_style'):
         # Use programmatically-set style (for nodes without any position data)
+        # For block style, keys should be indented 2 spaces from parent
         style = 'flow' if mapping.fa.flow_style() else 'block'
-        indent = parent_col
+        indent = parent_col + 2 if style == 'block' else parent_col
     else:
         style = 'block'
-        indent = parent_col
+        indent = parent_col + 2  # Keys indented 2 spaces from parent
 
     for key, value in mapping.items():
         # Get position info for this key-value pair

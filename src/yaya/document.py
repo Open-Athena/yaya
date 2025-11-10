@@ -980,12 +980,40 @@ class YAYA:
         _, existing_end = self._find_key_byte_range(parent, existing_key)
 
         # Serialize the new value
-        yaml_value = serialize_to_yaml(
-            value,
-            indent=0,
-            style=style,
-            list_offset=self._get_list_offset()
-        )
+        if isinstance(value, (dict, list)):
+            # Build formatted YAML node with proper metadata
+            from .formatting import build_yaml_node
+
+            # Determine flow style for node
+            flow_style = None
+            if style == 'flow':
+                flow_style = True
+            elif style == 'block':
+                flow_style = False
+
+            # Build node with formatting metadata
+            yaml_node = build_yaml_node(
+                value,
+                flow_style=flow_style,
+                quote_style=quote_style,
+                formatting=formatting,
+            )
+
+            # For block-style dicts, we need indent=2 to properly nest top-level keys
+            # For flow-style or lists, use indent=0
+            base_indent = 2 if (isinstance(value, dict) and style != 'flow') else 0
+            yaml_value = serialize_to_yaml(
+                yaml_node,
+                indent=base_indent,
+                style='auto',
+                list_offset=self._get_list_offset()
+            )
+            # Store the formatted node to preserve .fa metadata
+            value_to_store = yaml_node
+        else:
+            # Scalar value
+            yaml_value = str(value)
+            value_to_store = value
 
         # Build the new key-value pair
         indent_spaces = ' ' * key_col
@@ -1011,9 +1039,9 @@ class YAYA:
         keys = list(parent.keys())
         existing_index = keys.index(existing_key)
 
-        # Insert the new value into the data structure
+        # Insert the new value into the data structure (use formatted node to preserve .fa)
         items = list(parent.items())
-        items.insert(existing_index + 1, (new_key, value))
+        items.insert(existing_index + 1, (new_key, value_to_store))
 
         parent.clear()
         for k, v in items:
