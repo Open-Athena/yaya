@@ -107,7 +107,7 @@ def _convert_node(
     if isinstance(node, CommentedMap):
         return _convert_mapping(node, original_bytes, parent_col, is_list_item=is_list_item)
     elif isinstance(node, CommentedSeq):
-        return _convert_sequence(node, original_bytes, parent_col)
+        return _convert_sequence(node, original_bytes, parent_col, is_list_item=is_list_item)
     else:
         return _convert_scalar(node, original_bytes, parent_col, line=line, col=col)
 
@@ -237,6 +237,7 @@ def _convert_sequence(
     sequence: CommentedSeq,
     original_bytes: bytes,
     parent_col: int,
+    is_list_item: bool = False,
 ) -> Sequence:
     """Convert a CommentedSeq to Sequence node."""
     items = []
@@ -245,6 +246,8 @@ def _convert_sequence(
     if hasattr(sequence, 'fa') and hasattr(sequence.fa, 'flow_style'):
         # Use programmatically-set style
         style = 'flow' if sequence.fa.flow_style() else 'block'
+        # Indent is the column of the parent (key for mapping values, item for list items)
+        # The offset will handle additional indentation for the dash
         indent = parent_col
         offset = _default_list_offset  # Use detected offset from document
     elif hasattr(sequence, 'lc') and sequence.lc.data and len(sequence) > 0:

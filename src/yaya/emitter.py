@@ -39,18 +39,24 @@ def _serialize_document(doc: Document) -> bytes:
     return result
 
 
-def _serialize_node(node: Node) -> bytes:
-    """Serialize any node to bytes."""
+def _serialize_node(node: Node, in_flow_context: bool = False) -> bytes:
+    """
+    Serialize any node to bytes.
+
+    Args:
+        node: The node to serialize
+        in_flow_context: True if inside a flow-style collection
+    """
     if isinstance(node, InlineCommented):
-        return _serialize_inline_commented(node)
+        return _serialize_inline_commented(node, in_flow_context=in_flow_context)
     elif isinstance(node, KeyValue):
-        return _serialize_keyvalue(node)
+        return _serialize_keyvalue(node, in_flow_context=in_flow_context)
     elif isinstance(node, Scalar):
-        return _serialize_scalar(node)
+        return _serialize_scalar(node, in_flow_context=in_flow_context)
     elif isinstance(node, Mapping):
-        return _serialize_mapping(node)
+        return _serialize_mapping(node, in_flow_context=in_flow_context)
     elif isinstance(node, Sequence):
-        return _serialize_sequence(node)
+        return _serialize_sequence(node, in_flow_context=in_flow_context)
     elif isinstance(node, Comment):
         return _serialize_comment(node)
     elif isinstance(node, BlankLines):
@@ -59,12 +65,16 @@ def _serialize_node(node: Node) -> bytes:
         raise ValueError(f"Unknown node type: {type(node)}")
 
 
-def _needs_quotes(value: str) -> bool:
+def _needs_quotes(value: str, in_flow_context: bool = False) -> bool:
     """
     Determine if a string value needs quotes in YAML.
 
     Returns True if the value looks like a float (but not an int), boolean, null,
     or has special chars. Integers don't need quotes.
+
+    Args:
+        value: The string value to check
+        in_flow_context: True if inside a flow-style collection [...] or {...}
     """
     if not value:
         return False
@@ -111,8 +121,9 @@ def _needs_quotes(value: str) -> bool:
     if ' #' in value:
         return True
 
-    # Hyphen at start requires quoting (looks like list item)
-    if value.startswith('-'):
+    # Hyphen at start requires quoting ONLY in block context
+    # In flow context (inside [...] or {...}), hyphens are safe
+    if value.startswith('-') and not in_flow_context:
         return True
 
     # Check if starts with quote or spaces
@@ -122,8 +133,14 @@ def _needs_quotes(value: str) -> bool:
     return False
 
 
-def _serialize_scalar(scalar: Scalar) -> bytes:
-    """Serialize a Scalar node."""
+def _serialize_scalar(scalar: Scalar, in_flow_context: bool = False) -> bytes:
+    """
+    Serialize a Scalar node.
+
+    Args:
+        scalar: The scalar node to serialize
+        in_flow_context: True if inside a flow-style collection
+    """
     indent_str = b' ' * scalar.indent
 
     if scalar.style == 'numeric':
@@ -159,7 +176,7 @@ def _serialize_scalar(scalar: Scalar) -> bytes:
         return result
     else:  # plain
         # Smart quoting: auto-quote if value needs it
-        if _needs_quotes(scalar.value):
+        if _needs_quotes(scalar.value, in_flow_context=in_flow_context):
             # Use single quotes (ruamel's default for auto-quoting)
             escaped = scalar.value.replace("'", "''")
             return indent_str + b"'" + escaped.encode('utf-8') + b"'"
@@ -167,15 +184,15 @@ def _serialize_scalar(scalar: Scalar) -> bytes:
             return indent_str + scalar.value.encode('utf-8')
 
 
-def _serialize_mapping(mapping: Mapping) -> bytes:
+def _serialize_mapping(mapping: Mapping, in_flow_context: bool = False) -> bytes:
     """Serialize a Mapping node."""
     if mapping.style == 'flow':
         return _serialize_flow_mapping(mapping)
     else:
-        return _serialize_block_mapping(mapping)
+        return _serialize_block_mapping(mapping, in_flow_context=in_flow_context)
 
 
-def _serialize_block_mapping(mapping: Mapping) -> bytes:
+def _serialize_block_mapping(mapping: Mapping, in_flow_context: bool = False) -> bytes:
     """Serialize a block-style mapping."""
     parts = []
 
@@ -186,7 +203,7 @@ def _serialize_block_mapping(mapping: Mapping) -> bytes:
             value_node = item.value
 
             # Serialize key
-            key_bytes = _serialize_node(key_node)
+            key_bytes = _serialize_node(key_node, in_flow_context=in_flow_context)
 
             # Add colon
             colon = b':'
@@ -203,8 +220,8 @@ def _serialize_block_mapping(mapping: Mapping) -> bytes:
                 # Check if it's flow style (can be inline) or block style (new line)
                 is_flow = actual_value_node.style == 'flow'
                 if is_flow:
-                    # Flow style - inline with key
-                    value_bytes = _serialize_node(actual_value_node).lstrip()
+                    # Flow style - inline with key, child nodes ARE in flow context
+                    value_bytes = _serialize_node(actual_value_node, in_flow_context=True).lstrip()
                     line = key_bytes + colon + b' ' + value_bytes
                     if inline_comment:
                         line += b'  # ' + inline_comment.encode('utf-8')
@@ -212,10 +229,10 @@ def _serialize_block_mapping(mapping: Mapping) -> bytes:
                 else:
                     # Block style - value goes on next line
                     parts.append(key_bytes + colon + b'\n')
-                    parts.append(_serialize_node(actual_value_node))
+                    parts.append(_serialize_node(actual_value_node, in_flow_context=in_flow_context))
             else:
                 # Scalar value - goes on same line
-                value_bytes = _serialize_node(actual_value_node)
+                value_bytes = _serialize_node(actual_value_node, in_flow_context=in_flow_context)
                 # Remove indent from value (it's on same line as key)
                 value_str = value_bytes.lstrip()
                 line = key_bytes + colon + b' ' + value_str
@@ -225,7 +242,7 @@ def _serialize_block_mapping(mapping: Mapping) -> bytes:
                 parts.append(line + b'\n')
         else:
             # BlankLines, Comment, or other node
-            parts.append(_serialize_node(item))
+            parts.append(_serialize_node(item, in_flow_context=in_flow_context))
 
     return b''.join(parts)
 
@@ -242,8 +259,9 @@ def _serialize_flow_mapping(mapping: Mapping) -> bytes:
                 parts.append(b', ')
 
             # Serialize key and value (strip indents - they're in flow style)
-            key_bytes = _serialize_node(item.key).strip()
-            value_bytes = _serialize_node(item.value).strip()
+            # Pass in_flow_context=True so children know they're in flow context
+            key_bytes = _serialize_node(item.key, in_flow_context=True).strip()
+            value_bytes = _serialize_node(item.value, in_flow_context=True).strip()
 
             parts.append(key_bytes + b': ' + value_bytes)
             kv_count += 1
@@ -252,27 +270,27 @@ def _serialize_flow_mapping(mapping: Mapping) -> bytes:
     return b''.join(parts)
 
 
-def _serialize_keyvalue(keyvalue: KeyValue) -> bytes:
+def _serialize_keyvalue(keyvalue: KeyValue, in_flow_context: bool = False) -> bytes:
     """
     Serialize a KeyValue node.
 
     Note: This is used when KeyValue appears standalone, not in a Mapping.
     Inside Mapping, the serializer handles KeyValue directly.
     """
-    key_bytes = _serialize_node(keyvalue.key)
-    value_bytes = _serialize_node(keyvalue.value).lstrip()
+    key_bytes = _serialize_node(keyvalue.key, in_flow_context=in_flow_context)
+    value_bytes = _serialize_node(keyvalue.value, in_flow_context=in_flow_context).lstrip()
     return key_bytes + b': ' + value_bytes
 
 
-def _serialize_sequence(sequence: Sequence) -> bytes:
+def _serialize_sequence(sequence: Sequence, in_flow_context: bool = False) -> bytes:
     """Serialize a Sequence node."""
     if sequence.style == 'flow':
         return _serialize_flow_sequence(sequence)
     else:
-        return _serialize_block_sequence(sequence)
+        return _serialize_block_sequence(sequence, in_flow_context=in_flow_context)
 
 
-def _serialize_block_sequence(sequence: Sequence) -> bytes:
+def _serialize_block_sequence(sequence: Sequence, in_flow_context: bool = False) -> bytes:
     """Serialize a block-style sequence."""
     parts = []
 
@@ -284,7 +302,7 @@ def _serialize_block_sequence(sequence: Sequence) -> bytes:
         # Serialize item
         if isinstance(item_node, (Mapping, Sequence)):
             # Complex item
-            item_bytes = _serialize_node(item_node)
+            item_bytes = _serialize_node(item_node, in_flow_context=in_flow_context)
 
             # For mappings, we need to inline the first key-value on the same line as the dash
             if isinstance(item_node, Mapping) and item_node.items:
@@ -305,7 +323,7 @@ def _serialize_block_sequence(sequence: Sequence) -> bytes:
                 parts.append(dash_str + b'\n' + item_bytes)
         else:
             # Scalar item - goes on same line as dash
-            item_bytes = _serialize_node(item_node).strip()
+            item_bytes = _serialize_node(item_node, in_flow_context=in_flow_context).strip()
             parts.append(dash_str + item_bytes + b'\n')
 
     return b''.join(parts)
@@ -321,7 +339,8 @@ def _serialize_flow_sequence(sequence: Sequence) -> bytes:
             parts.append(b', ')
 
         # Serialize item (strip indent - it's in flow style)
-        item_bytes = _serialize_node(item_node).strip()
+        # Pass in_flow_context=True so children know they're in flow context
+        item_bytes = _serialize_node(item_node, in_flow_context=True).strip()
         parts.append(item_bytes)
 
     parts.append(b']')
@@ -339,7 +358,7 @@ def _serialize_blank_lines(blank_lines: BlankLines) -> bytes:
     return b'\n' * blank_lines.count
 
 
-def _serialize_inline_commented(inline_commented: InlineCommented) -> bytes:
+def _serialize_inline_commented(inline_commented: InlineCommented, in_flow_context: bool = False) -> bytes:
     """
     Serialize an InlineCommented node.
 
@@ -348,4 +367,4 @@ def _serialize_inline_commented(inline_commented: InlineCommented) -> bytes:
     to be on the same line as the key-value pair.
     """
     # Just serialize the wrapped node
-    return _serialize_node(inline_commented.node)
+    return _serialize_node(inline_commented.node, in_flow_context=in_flow_context)

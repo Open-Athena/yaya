@@ -903,14 +903,15 @@ class YAYA:
 
                 # Get the proper list offset (respects user override or defaults)
                 use_list_offset = self._get_list_offset_for_serialization()
-                # For block-style dicts, we need indent=2 to properly nest top-level keys
-                # For flow-style or lists, use indent=0
-                base_indent = 2 if (isinstance(value, dict) and style != 'flow') else 0
+
+                # Base indentation: values start 2 spaces after their key
+                # serialize_to_yaml() will add this to all content
+                value_indent = key_col + 2
 
                 # Serialize the formatted node
                 yaml_value = serialize_to_yaml(
                     yaml_node,
-                    indent=base_indent,
+                    indent=value_indent,
                     style='auto',  # Let node's formatting metadata control this
                     list_offset=use_list_offset
                 )
@@ -927,16 +928,13 @@ class YAYA:
                     # Block style - value starts on next line
                     replacement_lines = [f"{indent_spaces}{key_str}:"]
                     value_lines = yaml_value.split('\n')
-                    # serialize_to_yaml() already applied proper list indentation
-                    # We just need to add the base key indentation to match nesting level
+                    # serialize_to_yaml() already applied proper indentation
+                    # Don't add more indent - just use the lines as-is
                     for line in value_lines:
-                        if line.strip():
-                            replacement_lines.append(f"{indent_spaces}{line}")
-                        else:
-                            replacement_lines.append('')
+                        replacement_lines.append(line)
                     replacement = '\n'.join(replacement_lines)
                 else:
-                    # Single line value
+                    # Single line value (flow style)
                     replacement = f"{indent_spaces}{key_str}: {yaml_value}"
 
                 self._tracker.modifications[(start, end)] = replacement.encode('utf-8')

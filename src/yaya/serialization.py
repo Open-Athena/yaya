@@ -47,7 +47,16 @@ def detect_list_indentation(data: Any, original_bytes: bytes) -> int | None:
 
     def scan_for_lists(obj, parent_obj=None, parent_key=None):
         if isinstance(obj, CommentedSeq):
-            # This is a list - check its indentation
+            # Skip flow-style lists - they don't have block-style indentation
+            if hasattr(obj, 'fa') and hasattr(obj.fa, 'flow_style'):
+                is_flow = obj.fa.flow_style()
+                if is_flow:
+                    # Flow-style list - don't analyze indentation
+                    for item in obj:
+                        scan_for_lists(item, obj, None)
+                    return
+
+            # This is a block-style list - check its indentation
             if hasattr(obj, 'lc') and hasattr(obj.lc, 'data') and len(obj) > 0:
                 # Get first item position
                 if 0 in obj.lc.data:
