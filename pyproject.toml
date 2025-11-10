@@ -36,6 +36,11 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/yaya"]
 
+[dependency-groups]
+dev = [
+    "pytest>=7.0.0",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
