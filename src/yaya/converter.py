@@ -81,6 +81,7 @@ def _convert_node(
     parent_col: int = 0,
     line: int | None = None,
     col: int | None = None,
+    is_list_item: bool = False,
 ) -> Node:
     """
     Convert a single ruamel node to clean AST.
@@ -96,7 +97,7 @@ def _convert_node(
         Clean AST node
     """
     if isinstance(node, CommentedMap):
-        return _convert_mapping(node, original_bytes, parent_col)
+        return _convert_mapping(node, original_bytes, parent_col, is_list_item=is_list_item)
     elif isinstance(node, CommentedSeq):
         return _convert_sequence(node, original_bytes, parent_col)
     else:
@@ -107,6 +108,7 @@ def _convert_mapping(
     mapping: CommentedMap,
     original_bytes: bytes,
     parent_col: int,
+    is_list_item: bool = False,
 ) -> Mapping:
     """Convert a CommentedMap to Mapping node."""
     items = []
@@ -125,14 +127,16 @@ def _convert_mapping(
             style = 'block'
             indent = parent_col
     # Check if style was set programmatically via .fa (for fully programmatic nodes)
-    elif hasattr(mapping, 'fa') and hasattr(mapping.fa, 'flow_style'):
+    elif hasattr(mapping, 'fa') and hasattr(mapping.fa, 'flow_style') and mapping.fa.flow_style() is not None:
         # Use programmatically-set style (for nodes without any position data)
-        # For block style, keys should be indented 2 spaces from parent
         style = 'flow' if mapping.fa.flow_style() else 'block'
-        indent = parent_col + 2 if style == 'block' else parent_col
+        # List items: keys at parent_col. Mapping values: keys at parent_col + 2
+        indent = parent_col if is_list_item else parent_col + 2
     else:
+        # Default for programmatic mappings without explicit style
         style = 'block'
-        indent = parent_col + 2  # Keys indented 2 spaces from parent
+        # List items: keys at parent_col. Mapping values: keys at parent_col + 2
+        indent = parent_col if is_list_item else parent_col + 2
 
     for key, value in mapping.items():
         # Get position info for this key-value pair
@@ -256,9 +260,9 @@ def _convert_sequence(
     for i, item in enumerate(sequence):
         if hasattr(sequence, 'lc') and sequence.lc.data and i in sequence.lc.data:
             item_line, item_col = sequence.lc.data[i][:2]
-            item_node = _convert_node(item, original_bytes, parent_col=item_col)
+            item_node = _convert_node(item, original_bytes, parent_col=item_col, is_list_item=True)
         else:
-            item_node = _convert_node(item, original_bytes, parent_col=indent)
+            item_node = _convert_node(item, original_bytes, parent_col=indent, is_list_item=True)
 
         items.append(item_node)
 
@@ -282,7 +286,7 @@ def _convert_scalar(
         style = 'plain'
     elif isinstance(value, (int, float)):
         str_value = str(value)
-        style = 'plain'
+        style = 'numeric'  # Special style for actual numbers (never quoted)
     else:
         str_value = str(value)
 

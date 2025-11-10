@@ -83,9 +83,10 @@ def _needs_quotes(value: str) -> bool:
     except ValueError:
         pass
 
-    # Check for YAML keywords
+    # Check for YAML keywords - these should NOT be quoted
+    # (they're valid YAML literals)
     if value.lower() in ('true', 'false', 'null', 'yes', 'no', 'on', 'off'):
-        return True
+        return False
 
     # Check for special characters that require quoting
     # Note: Some chars are only problematic in certain positions:
@@ -102,7 +103,7 @@ def _needs_quotes(value: str) -> bool:
         return True  # Comment indicator
 
     # Check for chars that are problematic anywhere
-    problematic_anywhere = ':@`'
+    problematic_anywhere = ':`'
     if any(c in value for c in problematic_anywhere):
         return True
 
@@ -125,7 +126,10 @@ def _serialize_scalar(scalar: Scalar) -> bytes:
     """Serialize a Scalar node."""
     indent_str = b' ' * scalar.indent
 
-    if scalar.style == 'double':
+    if scalar.style == 'numeric':
+        # Numeric values (int/float) - never quoted
+        return indent_str + scalar.value.encode('utf-8')
+    elif scalar.style == 'double':
         # Escape special characters for double-quoted strings
         escaped = scalar.value.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
         return indent_str + b'"' + escaped.encode('utf-8') + b'"'

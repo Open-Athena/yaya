@@ -837,9 +837,30 @@ class YAYA:
             if not isinstance(final_key, int):
                 raise TypeError(f"List items must be accessed with integer index, not {type(final_key).__name__}")
 
+            # Build formatted YAML node if value is a collection
+            if isinstance(value, (dict, list)):
+                from .formatting import build_yaml_node
+
+                # Determine flow style for node
+                flow_style = None
+                if style == 'flow':
+                    flow_style = True
+                elif style == 'block':
+                    flow_style = False
+
+                # Build node with formatting metadata
+                yaml_node = build_yaml_node(
+                    value,
+                    flow_style=flow_style,
+                    quote_style=quote_style,
+                    formatting=formatting,
+                )
+            else:
+                yaml_node = value
+
             # Replace list item
-            self._replace_list_item(parent, final_key, value, style=style)
-            parent[final_key] = value
+            self._replace_list_item(parent, final_key, yaml_node, style=style)
+            parent[final_key] = yaml_node
             return
 
         if not isinstance(parent, CommentedMap):
