@@ -97,10 +97,17 @@ def test_set_list_indent_style_with_add_key(tmp_path):
     doc.save()
 
     result = yaml_file.read_text()
-    # Check that list items are indented with 2-space offset
-    assert "steps:" in result
-    assert "      - uses: actions/checkout@v3" in result  # 4 (key indent) + 2 (offset) = 6 spaces
-    assert "      - run: echo test" in result
+    # Before: no steps
+    # After: steps added with 2-space offset (6 total spaces for list items at depth 2)
+    expected = (
+        'jobs:\n'
+        '  test:\n'
+        '    runs-on: ubuntu-latest\n'
+        '    steps:\n'
+        '      - uses: actions/checkout@v3\n'  # 4 (key indent) + 2 (offset) = 6 spaces
+        '      - run: echo test\n'
+    )
+    assert result == expected
 
 
 def test_default_offset_without_override(tmp_path):
@@ -121,7 +128,12 @@ def test_default_offset_without_override(tmp_path):
     doc.save()
 
     result = yaml_file.read_text()
-    # Should default to offset=2
-    assert "  push:" in result
-    assert "    branches:" in result
-    assert "      - main" in result  # 4 + 2 = 6 spaces
+    # Before: on: [push] (flow style)
+    # After: on expanded to nested structure with offset=2 (default)
+    expected = (
+        'on:\n'
+        '  push:\n'
+        '    branches:\n'
+        '      - main\n'  # 4 (key indent) + 2 (default offset) = 6 spaces
+    )
+    assert result == expected

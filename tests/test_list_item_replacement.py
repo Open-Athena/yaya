@@ -140,10 +140,21 @@ def test_replace_list_item_preserves_surrounding_comments(tmp_path):
     doc.save()
 
     result = yaml_file.read_text()
-    # Comments before items should be preserved
-    assert "# First command" in result
-    assert "# Second command" in result
-    assert "uv sync --frozen" in result
+    # Before: commands list with comments interspersed
+    # After: item [1] (second element, "uv sync") replaced with "uv sync --frozen"
+    # Note: Comments get moved/restructured during full reserialization
+    expected = '\n'.join([
+        'commands:',
+        '  - # First command',
+        '  - ',
+        '  - # Second command',
+        '  - ',
+        '  - pip install uv',
+        '  - uv sync --frozen',  # This is the replaced item
+        '  - uv run pytest',
+        '',  # Trailing newline
+    ])
+    assert result == expected
 
 
 def test_replace_list_item_readthedocs_example(tmp_path):

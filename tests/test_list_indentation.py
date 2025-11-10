@@ -30,14 +30,23 @@ def test_list_indentation_inference(tmp_path):
     doc.save()
 
     result = yaml_file.read_text()
-
-    # List items should be indented by 2 spaces (matching the steps list)
-    # The pattern should be: "    branches:" followed by "      - main"
-    # (4 spaces for branches, 6 spaces for the list item)
-    assert "branches:" in result
-    assert "      - main" in result, f"Expected '      - main' but got:\n{result}"
-    assert "paths:" in result
-    assert "      - lib/**" in result, f"Expected '      - lib/**' but got:\n{result}"
+    # Before: existing workflow with steps (indented list style, offset=2)
+    # After: new "on" trigger added, inheriting offset=2 from steps
+    expected = (
+        'jobs:\n'
+        '  test:\n'
+        '    steps:\n'
+        '      - uses: actions/checkout@v4\n'
+        '      - name: Test\n'
+        '        run: echo "test"\n'
+        'on:\n'
+        '  push:\n'
+        '    branches:\n'
+        '      - main\n'  # Inherits offset=2 (6 spaces total at depth 2)
+        '    paths:\n'
+        '      - lib/**\n'
+    )
+    assert result == expected
 
 
 def test_replace_key_at_root_with_list(tmp_path):
@@ -67,18 +76,29 @@ jobs:
     doc.save()
 
     result = yaml_file.read_text()
-    print("Result:")
-    print(result)
-
-    # Check for proper indentation
-    # Top-level keys like "push:" should have 2 spaces
-    assert "  push:" in result
-    # Nested keys like "branches:" should have 4 spaces
-    assert "    branches:" in result
-    # List items should have 6 spaces (2 more than parent)
-    assert "      - main" in result
-    assert "      - develop" in result
-    assert "      - lib/levanter/**" in result
+    # Before: workflow with name and jobs
+    # After: "on" trigger added with nested lists, using offset=2 from existing steps
+    expected = (
+        'name: Test workflow\n'
+        '\n'
+        'jobs:\n'
+        '  test:\n'
+        '    runs-on: ubuntu-latest\n'
+        '    steps:\n'
+        '      - uses: actions/checkout@v4\n'
+        'on:\n'
+        '  push:\n'  # 2 spaces (depth 1)
+        '    branches:\n'  # 4 spaces (depth 2)
+        '      - main\n'  # 6 spaces (depth 2 key + offset 2)
+        '      - develop\n'
+        '    paths:\n'
+        '      - lib/levanter/**\n'
+        '      - uv.lock\n'
+        '  pull_request:\n'
+        '    paths:\n'
+        '      - lib/levanter/**\n'
+    )
+    assert result == expected
 
 
 def test_add_key_after_with_lists(tmp_path):
@@ -104,15 +124,24 @@ def test_add_key_after_with_lists(tmp_path):
     doc.save()
 
     result = yaml_file.read_text()
-    print("Result:")
-    print(result)
-
-    # Check indentation matches existing pattern
-    assert "    strategy:" in result
-    assert "      matrix:" in result
-    assert "        python-version:" in result
-    # List items should be indented 2 spaces from parent
-    assert '          - "3.10"' in result or "          - '3.10'" in result
+    # Before: job with runs-on and steps
+    # After: strategy matrix inserted between runs-on and steps, with proper indentation
+    expected = (
+        'jobs:\n'
+        '  test:\n'
+        '    runs-on: ubuntu-latest\n'
+        '    strategy:\n'  # 4 spaces (depth 2)
+        '      matrix:\n'  # 6 spaces (depth 3)
+        '        python-version:\n'  # 8 spaces (depth 4)
+        "          - '3.10'\n"  # 10 spaces (depth 4 key + offset 2)
+        "          - '3.11'\n"
+        "          - '3.12'\n"
+        '    steps:\n'
+        '      - uses: actions/checkout@v4\n'
+        '      - name: Test\n'
+        '        run: echo "test"\n'
+    )
+    assert result == expected
 
 
 def test_aligned_list_style_detection(tmp_path):
@@ -140,12 +169,24 @@ def test_aligned_list_style_detection(tmp_path):
     doc.save()
 
     result = yaml_file.read_text()
-    print("Result:")
-    print(result)
-
-    # New list should also be aligned (not indented)
-    # things: is at 4 spaces (nested under newlist), dash should also be at 4 spaces
-    assert "    things:\n    - a" in result or "    things:\n    - 'a'" in result
+    # Before: config with aligned lists (offset=0: dashes at same indent as parent key)
+    # After: newlist added, inheriting offset=0 style
+    expected = (
+        'config:\n'
+        '  items:\n'
+        '  - foo\n'  # Aligned: dash at same level as "items:"
+        '  - bar\n'
+        '  nested:\n'
+        '    subitems:\n'
+        '    - one\n'  # Also aligned
+        '    - two\n'
+        '  newlist:\n'
+        '    things:\n'
+        '    - a\n'  # New list also aligned (offset=0 detected and inherited)
+        '    - b\n'
+        '    - c\n'
+    )
+    assert result == expected
 
 
 def test_indented_list_style_detection(tmp_path):
@@ -173,12 +214,24 @@ def test_indented_list_style_detection(tmp_path):
     doc.save()
 
     result = yaml_file.read_text()
-    print("Result:")
-    print(result)
-
-    # New list should also be indented
-    # things: is at 4 spaces, dash should be at 6 spaces (indented 2 from parent)
-    assert "    things:\n      - a" in result or "    things:\n      - 'a'" in result
+    # Before: config with indented lists (offset=2: dashes 2 spaces beyond parent key)
+    # After: newlist added, inheriting offset=2 style
+    expected = (
+        'config:\n'
+        '  items:\n'
+        '    - foo\n'  # Indented: dash 2 spaces beyond "items:" (4 total)
+        '    - bar\n'
+        '  nested:\n'
+        '    subitems:\n'
+        '      - one\n'  # Also indented (6 total spaces)
+        '      - two\n'
+        '  newlist:\n'
+        '    things:\n'
+        '      - a\n'  # New list also indented (offset=2 detected and inherited)
+        '      - b\n'
+        '      - c\n'
+    )
+    assert result == expected
 
 
 def test_set_list_indent_style_override(tmp_path):
@@ -200,12 +253,18 @@ def test_set_list_indent_style_override(tmp_path):
     doc.save()
 
     result = yaml_file.read_text()
-    print("Result:")
-    print(result)
-
-    # Should use aligned style despite original being indented
-    # things: is at 4 spaces, dash should also be at 4 spaces (aligned)
-    assert "    things:\n    - a" in result or "    things:\n    - 'a'" in result
+    # Before: config with indented list (offset=2)
+    # After: newlist added, but using OVERRIDDEN aligned style (offset=0)
+    expected = (
+        'config:\n'
+        '  items:\n'
+        '    - foo\n'  # Original list still indented
+        '  newlist:\n'
+        '    things:\n'
+        '    - a\n'  # New list is aligned (offset=0) due to override
+        '    - b\n'
+    )
+    assert result == expected
 
 
 def test_mixed_indentation_warning(tmp_path):
