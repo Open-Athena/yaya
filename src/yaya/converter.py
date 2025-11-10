@@ -139,6 +139,34 @@ def _convert_mapping(
         indent = parent_col if is_list_item else parent_col + 2
 
     for key, value in mapping.items():
+        # Check for blank lines or comments BEFORE this key
+        # ca_item structure: [before_key, between_key_value, after_value, end_of_block]
+        # Blank lines before key can be in position [0] or [1] depending on how they were added
+        if hasattr(mapping, 'ca') and key in mapping.ca.items:
+            ca_item = mapping.ca.items[key]
+
+            # Check position [1] (between_key_value) - used by yaml_set_comment_before_after_key
+            if len(ca_item) > 1 and ca_item[1]:
+                between_items = ca_item[1] if isinstance(ca_item[1], list) else [ca_item[1]]
+                for token in between_items:
+                    if hasattr(token, 'value') and token.value:
+                        # Check if it's just newlines (blank lines)
+                        if token.value == '\n' or (token.value.startswith('\n') and not token.value.lstrip('\n').strip()):
+                            blank_count = token.value.count('\n')
+                            if blank_count > 0:
+                                items.append(BlankLines(count=blank_count))
+
+            # Also check position [0] (before_key) for completeness
+            if len(ca_item) > 0 and ca_item[0]:
+                before_token = ca_item[0]
+                if hasattr(before_token, 'value'):
+                    before_value = before_token.value
+                    # Check if it's blank lines
+                    if before_value and not before_value.lstrip('\n').startswith('#'):
+                        blank_count = before_value.count('\n')
+                        if blank_count > 0:
+                            items.append(BlankLines(count=blank_count))
+
         # Get position info for this key-value pair
         if hasattr(mapping, 'lc') and mapping.lc.data and key in mapping.lc.data:
             key_line, key_col, val_line, val_col = mapping.lc.data[key][:4]
@@ -148,34 +176,6 @@ def _convert_mapping(
 
             # Convert value (pass position info for scalars)
             value_node = _convert_node(value, original_bytes, parent_col=key_col, line=val_line, col=val_col)
-
-            # Check for blank lines or comments BEFORE this key
-            # ca_item structure: [before_key, between_key_value, after_value, end_of_block]
-            # Blank lines before key can be in position [0] or [1] depending on how they were added
-            if hasattr(mapping, 'ca') and key in mapping.ca.items:
-                ca_item = mapping.ca.items[key]
-
-                # Check position [1] (between_key_value) - used by yaml_set_comment_before_after_key
-                if len(ca_item) > 1 and ca_item[1]:
-                    between_items = ca_item[1] if isinstance(ca_item[1], list) else [ca_item[1]]
-                    for token in between_items:
-                        if hasattr(token, 'value') and token.value:
-                            # Check if it's just newlines (blank lines)
-                            if token.value == '\n' or (token.value.startswith('\n') and not token.value.lstrip('\n').strip()):
-                                blank_count = token.value.count('\n')
-                                if blank_count > 0:
-                                    items.append(BlankLines(count=blank_count))
-
-                # Also check position [0] (before_key) for completeness
-                if len(ca_item) > 0 and ca_item[0]:
-                    before_token = ca_item[0]
-                    if hasattr(before_token, 'value'):
-                        before_value = before_token.value
-                        # Check if it's blank lines
-                        if before_value and not before_value.lstrip('\n').startswith('#'):
-                            blank_count = before_value.count('\n')
-                            if blank_count > 0:
-                                items.append(BlankLines(count=blank_count))
 
             # Check for inline comment
             if hasattr(mapping, 'ca') and key in mapping.ca.items:

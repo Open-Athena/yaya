@@ -626,10 +626,11 @@ class YAYA:
             parent[final_key] = yaml_node
 
             # Add blank lines if requested
+            # Note: ruamel consumes one \n as the normal line break, so add 1 extra
             if blank_lines_before > 0:
                 parent.yaml_set_comment_before_after_key(
                     final_key,
-                    before='\n' * blank_lines_before
+                    before='\n' * (blank_lines_before + 1)
                 )
         else:
             # Scalar value - also needs to be serialized and inserted
@@ -664,6 +665,14 @@ class YAYA:
             self._tracker.record_insertion(existing_end, new_content.encode('utf-8'))
             # Update data structure
             parent[final_key] = value
+
+            # Add blank lines if requested
+            # Note: ruamel consumes one \n as the normal line break, so add 1 extra
+            if blank_lines_before > 0:
+                parent.yaml_set_comment_before_after_key(
+                    final_key,
+                    before='\n' * (blank_lines_before + 1)
+                )
 
     def _replace_list_item(
         self,
@@ -1067,6 +1076,13 @@ class YAYA:
         parent.clear()
         for k, v in items:
             parent[k] = v
+
+        # Add blank lines before the new key if requested
+        if blank_lines_before > 0:
+            parent.yaml_set_comment_before_after_key(
+                new_key,
+                before='\n' * ((blank_lines_before + 1) + 1)
+            )
 
     def insert_key_between(
         self,
