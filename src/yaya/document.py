@@ -1303,7 +1303,8 @@ class YAYA:
 
         # Pass detected list offset to converter for programmatic sequences
         # If no offset detected, use default of 2 (indented style)
-        default_offset = self._get_list_offset() or 2
+        detected = self._get_list_offset()
+        default_offset = detected if detected is not None else 2
         clean_ast = convert_to_clean_ast(self.data, self.original_bytes, default_list_offset=default_offset)
         final_bytes = serialize(clean_ast)
 

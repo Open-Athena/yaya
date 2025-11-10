@@ -242,19 +242,27 @@ def _convert_sequence(
     """Convert a CommentedSeq to Sequence node."""
     items = []
 
-    # Check if style was set programmatically via .fa (format attribute)
+    # Determine style and formatting
+    # Priority: .fa.flow_style() (works for both parsed and programmatic) > extract from bytes
     if hasattr(sequence, 'fa') and hasattr(sequence.fa, 'flow_style'):
-        # Use programmatically-set style
-        style = 'flow' if sequence.fa.flow_style() else 'block'
-        # Indent is the column of the parent (key for mapping values, item for list items)
-        # The offset will handle additional indentation for the dash
-        indent = parent_col
-        offset = _default_list_offset  # Use detected offset from document
-    elif hasattr(sequence, 'lc') and sequence.lc.data and len(sequence) > 0:
-        # Extract style from original bytes
+        fa_style = sequence.fa.flow_style()
+        if fa_style is True:
+            style = 'flow'
+        elif fa_style is False:
+            style = 'block'
+        else:
+            style = None  # Will extract from bytes
+    else:
+        style = None
+
+    # For parsed sequences with position data, extract indent/offset from bytes
+    if hasattr(sequence, 'lc') and sequence.lc.data and len(sequence) > 0:
         first_item_line, first_item_col = sequence.lc.data[0][:2]
 
-        style = extract_sequence_style(original_bytes, first_item_line, first_item_col)
+        # If style not determined from .fa, extract from bytes
+        if style is None:
+            style = extract_sequence_style(original_bytes, first_item_line, first_item_col)
+
         # Indent is the parent's column, not the dash position
         indent = parent_col
 
@@ -264,7 +272,9 @@ def _convert_sequence(
         else:
             offset = 0
     else:
-        style = 'block'
+        # Programmatic sequence without position data
+        if style is None:
+            style = 'block'  # Default
         indent = parent_col
         offset = _default_list_offset  # Use detected offset from document
 
