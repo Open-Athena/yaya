@@ -257,7 +257,39 @@ def _convert_sequence(
         indent = parent_col
         offset = 2
 
+    # Extract leading comments (before first item)
+    if hasattr(sequence, 'ca') and sequence.ca.comment and sequence.ca.comment[1]:
+        leading_comments = sequence.ca.comment[1] if isinstance(sequence.ca.comment[1], list) else [sequence.ca.comment[1]]
+        for comment_token in leading_comments:
+            if comment_token:
+                comment_text = comment_token.value.lstrip('#').rstrip('\n').lstrip()
+                line = comment_token.start_mark.line
+                indent_val = extract_indentation(original_bytes, line)
+                items.append(Comment(text=comment_text, indent=indent_val))
+
     for i, item in enumerate(sequence):
+        # Check for comments before this item
+        if hasattr(sequence, 'ca') and sequence.ca.items and i in sequence.ca.items:
+            ca_item = sequence.ca.items[i]
+            if len(ca_item) > 0 and ca_item[0]:
+                comment_token = ca_item[0]
+                # This can contain comments (lines starting with #) and/or blank lines
+                comment_value = comment_token.value if hasattr(comment_token, 'value') else str(comment_token)
+                for line in comment_value.split('\n'):
+                    line = line.strip()
+                    if line.startswith('#'):
+                        comment_text = line.lstrip('#').lstrip()
+                        # Get indentation from token position
+                        token_line = comment_token.start_mark.line if hasattr(comment_token, 'start_mark') else None
+                        if token_line is not None:
+                            indent_val = extract_indentation(original_bytes, token_line)
+                        else:
+                            indent_val = indent + offset
+                        items.append(Comment(text=comment_text, indent=indent_val))
+                    elif not line:
+                        # Blank line
+                        items.append(BlankLines(count=1))
+
         if hasattr(sequence, 'lc') and sequence.lc.data and i in sequence.lc.data:
             item_line, item_col = sequence.lc.data[i][:2]
             item_node = _convert_node(item, original_bytes, parent_col=item_col, is_list_item=True)
