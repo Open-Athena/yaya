@@ -186,8 +186,11 @@ env:
     result1 = doc1.save(tmp_path / "result1.yaml")
     result1_text = result1.decode()
 
-    assert "name: New Test Workflow" in result1_text
-    assert "WORKFLOW_NAME: Test Workflow" in result1_text  # Unchanged
+    expected1 = """name: New Test Workflow
+env:
+  WORKFLOW_NAME: Test Workflow
+"""
+    assert result1_text == expected1
 
     # Test replace_in_values - global
     yaml_file.write_text(yaml_content)  # Reset
@@ -196,8 +199,11 @@ env:
     result2 = doc2.save(tmp_path / "result2.yaml")
     result2_text = result2.decode()
 
-    assert "name: New Test Workflow" in result2_text
-    assert "WORKFLOW_NAME: New Test Workflow" in result2_text  # Also changed!
+    expected2 = """name: New Test Workflow
+env:
+  WORKFLOW_NAME: New Test Workflow
+"""
+    assert result2_text == expected2
 
 
 def test_ensure_key_deep_nested_path(tmp_path):

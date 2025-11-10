@@ -18,8 +18,10 @@ another: keep_this
     doc.save()
 
     result = yaml_file.read_text()
-    assert 'new_value' in result
-    assert 'keep_this' in result
+    expected = """key: new_value
+another: keep_this
+"""
+    assert result == expected
 
 
 def test_preserves_comments(tmp_path):
@@ -35,10 +37,11 @@ key: value  # inline comment
     doc.replace_in_values('value', 'newvalue')
     result = doc.save()
 
-    # Comments should be preserved
-    assert b'# Top comment' in result
-    assert b'# inline comment' in result
-    assert b'# Bottom comment' in result
+    expected = b"""# Top comment
+key: newvalue  # inline comment
+# Bottom comment
+"""
+    assert result == expected
 
 
 def test_preserves_whitespace(tmp_path):
@@ -54,9 +57,11 @@ def test_preserves_whitespace(tmp_path):
     doc.replace_in_values('ubuntu', 'debian')
     result = doc.save()
 
-    # Should preserve exact spacing
-    assert b'  test:' in result
-    assert b'    runs-on:' in result
+    expected = b"""jobs:
+  test:
+    runs-on: debian-latest
+"""
+    assert result == expected
 
 
 def test_block_scalar(tmp_path):
@@ -73,11 +78,14 @@ def test_block_scalar(tmp_path):
     doc.save()
     result = yaml_file.read_text()
 
-    assert 'goodbye' in result
-    assert 'world' in result
-    # Indentation should be preserved
-    assert '  echo "goodbye"' in result
-    assert '  echo "world"' in result
+    expected = (
+        'script: |\n'
+        '  echo "goodbye"\n'
+        '  echo "world"\n'
+        '\n'
+        '\n'
+    )
+    assert result == expected
 
 
 def test_nested_structures(tmp_path):
@@ -97,8 +105,15 @@ outer:
     doc.save()
     result = yaml_file.read_text()
 
-    assert result.count('new_value') == 2
-    assert 'keep' in result
+    expected = (
+        'outer:\n'
+        '  inner:\n'
+        '    deep: new_value\n'
+        '  list:\n'
+        '    - item1: new_value\n'
+        '    - item2: keep\n'
+    )
+    assert result == expected
 
 
 def test_no_changes_when_no_match(tmp_path):
