@@ -626,7 +626,6 @@ class YAYA:
             parent[final_key] = yaml_node
 
             # Add blank lines if requested
-            # Note: ruamel consumes one \n as the normal line break, so add 1 extra
             if blank_lines_before > 0:
                 parent.yaml_set_comment_before_after_key(
                     final_key,
@@ -667,7 +666,6 @@ class YAYA:
             parent[final_key] = value
 
             # Add blank lines if requested
-            # Note: ruamel consumes one \n as the normal line break, so add 1 extra
             if blank_lines_before > 0:
                 parent.yaml_set_comment_before_after_key(
                     final_key,
@@ -947,10 +945,11 @@ class YAYA:
                 parent[final_key] = value
 
             # Add blank lines if requested
+            # Note: ruamel consumes one newline, so add 1 extra
             if blank_lines_before > 0 and isinstance(parent, CommentedMap):
                 parent.yaml_set_comment_before_after_key(
                     final_key,
-                    before='\n' * blank_lines_before
+                    before='\n' * (blank_lines_before + 1)
                 )
 
     def add_key_after(
@@ -999,7 +998,23 @@ class YAYA:
 
         # Find the position to insert
         if not hasattr(parent, 'lc') or existing_key not in parent.lc.data:
-            raise ValueError(f"Cannot find position info for key {existing_key!r}")
+            # Position info not available (programmatically-added key)
+            # Fall back to regular add_key() - ordering not guaranteed
+            import warnings
+            warnings.warn(
+                f"Key {existing_key!r} has no position info (programmatically added). "
+                f"Using add_key() instead - insertion order not guaranteed.",
+                UserWarning
+            )
+            return self.add_key(
+                existing_path.rsplit('.', 1)[0] + f'.{new_key}',
+                value,
+                style=style,
+                quote_style=quote_style,
+                blank_lines_before=blank_lines_before,
+                formatting=formatting,
+                force=False
+            )
 
         lc_info = parent.lc.data[existing_key]
         key_col = lc_info[1]
@@ -1200,6 +1215,16 @@ class YAYA:
         # Check if key exists in parent
         if final_key not in parent:
             return False
+
+        # Delete from the ruamel data structure
+        # The save() method will resave the entire document via clean AST,
+        # which will naturally omit the deleted key
+        del parent[final_key]
+        return True
+
+        # OLD BYTE-PATCHING APPROACH (DISABLED)
+        # The code below is incompatible with full reserialization via clean AST.
+        # Keeping for reference but unreachable.
 
         # Find the byte range to delete
         if not hasattr(parent, 'lc') or final_key not in parent.lc.data:
