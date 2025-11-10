@@ -622,8 +622,8 @@ class YAYA:
                 new_content = f"\n{indent_spaces}{key_str}: {yaml_value}"
 
             self._tracker.record_insertion(existing_end, new_content.encode('utf-8'))
-            # Update data structure
-            parent[final_key] = value
+            # Update data structure (use formatted node to preserve .fa metadata)
+            parent[final_key] = yaml_node
 
             # Add blank lines if requested
             if blank_lines_before > 0:

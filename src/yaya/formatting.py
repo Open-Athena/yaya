@@ -82,6 +82,10 @@ def build_yaml_node(
                 else:
                     nested_format[fmt_key] = fmt_val
 
+            # Inherit parent flow_style if not overridden for this key
+            if 'flow_style' not in direct_format and flow_style is not None:
+                direct_format['flow_style'] = flow_style
+
             # Pass nested formatting as 'formatting' param
             if nested_format:
                 direct_format['formatting'] = nested_format
@@ -106,6 +110,9 @@ def build_yaml_node(
             # Inherit parent quote_style if not overridden for this item
             if 'quote_style' not in item_format and quote_style != 'auto':
                 item_format = {**item_format, 'quote_style': quote_style}
+            # Inherit parent flow_style if not overridden for this item
+            if 'flow_style' not in item_format and flow_style is not None:
+                item_format = {**item_format, 'flow_style': flow_style}
             items.append(build_yaml_node(item, **item_format))
 
         node = CommentedSeq(items)
