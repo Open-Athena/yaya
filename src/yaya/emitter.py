@@ -196,9 +196,19 @@ def _serialize_block_mapping(mapping: Mapping) -> bytes:
 
             # Serialize value
             if isinstance(actual_value_node, (Mapping, Sequence)):
-                # Complex value - goes on next line
-                parts.append(key_bytes + colon + b'\n')
-                parts.append(_serialize_node(actual_value_node))
+                # Check if it's flow style (can be inline) or block style (new line)
+                is_flow = actual_value_node.style == 'flow'
+                if is_flow:
+                    # Flow style - inline with key
+                    value_bytes = _serialize_node(actual_value_node).lstrip()
+                    line = key_bytes + colon + b' ' + value_bytes
+                    if inline_comment:
+                        line += b'  # ' + inline_comment.encode('utf-8')
+                    parts.append(line + b'\n')
+                else:
+                    # Block style - value goes on next line
+                    parts.append(key_bytes + colon + b'\n')
+                    parts.append(_serialize_node(actual_value_node))
             else:
                 # Scalar value - goes on same line
                 value_bytes = _serialize_node(actual_value_node)
