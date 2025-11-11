@@ -131,12 +131,19 @@ def test_replace_key_preserve_falls_back_to_auto(tmp_path):
     doc.save()
 
     result = yaml_file.read_text()
-    # Should use auto style (block in this case)
-    # Note: these tests are for add_key, which may add newlines at different positions
-    # The actual assertion will depend on the code path
-    assert "python-version" in result
-    assert "'3.11'" in result
-    assert "'3.12'" in result
+    # Before: strategy with jax-version in flow style
+    # After: python-version added with style='preserve', but since key doesn't exist,
+    #        falls back to auto (block style)
+    expected = '\n'.join([
+        'strategy:',
+        '  matrix:',
+        '    jax-version: [0.6.2]',
+        '    python-version:',
+        "      - '3.11'",  # Auto style = block (not flow like jax-version)
+        "      - '3.12'",
+        '',
+    ])
+    assert result == expected
 
 
 def test_add_key_flow_style(tmp_path):
@@ -237,10 +244,18 @@ def test_mixed_styles_in_document(tmp_path):
     doc.save()
 
     result = yaml_file.read_text()
-    # Verify both styles are present
-    assert "env: {NODE_ENV: production}" in result
-    assert "steps:" in result
-    assert "run: echo test" in result
+    # Before: job with only runs-on
+    # After: env added in flow style, steps added in block style
+    expected = '\n'.join([
+        'jobs:',
+        '  test:',
+        '    runs-on: ubuntu-latest',
+        '    env: {NODE_ENV: production}',  # Flow style
+        '    steps:',  # Block style
+        '      - run: echo test',
+        '',
+    ])
+    assert result == expected
 
 
 def test_flow_style_with_numbers(tmp_path):

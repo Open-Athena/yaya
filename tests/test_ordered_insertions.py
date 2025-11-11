@@ -131,15 +131,21 @@ def test_insert_key_between_with_nested_prev_key(tmp_path):
     doc.save()
 
     result = yaml_file.read_text()
-    # Note: Quote style may vary (single vs double quotes, quoted vs unquoted numbers)
-    # Both are valid YAML. Check for content and structure instead of exact formatting.
-    assert "python-version:" in result
-    assert "3.11" in result
-    assert "jax-version:" in result
-    assert "0.5.2" in result
-    assert "0.6.2" in result
-    assert "defaults:" in result
-    assert "working-directory: lib/levanter" in result
-    assert "- run: echo test" in result
-    # Verify ordering is preserved
-    assert result.index("strategy") < result.index("defaults") < result.index("steps")
+    # Before: job with strategy (containing nested matrix) and steps
+    # After: defaults inserted BETWEEN strategy and steps (order preserved!)
+    expected = '\n'.join([
+        'jobs:',
+        '  unit_tests:',
+        '    runs-on: ubuntu-latest',
+        '    strategy:',  # prev_key
+        '      matrix:',
+        "        python-version: ['3.11']",  # Quote style from ruamel
+        '        jax-version: [0.5.2, 0.6.2]',  # Numbers unquoted
+        '    defaults:',  # new_key inserted here
+        '      run:',
+        '        working-directory: lib/levanter',
+        '    steps:',  # next_key
+        '      - run: echo test',
+        '',
+    ])
+    assert result == expected

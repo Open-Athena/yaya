@@ -66,9 +66,19 @@ def test_regex_replacement(tmp_path):
     doc.save()
 
     result = yaml_file.read_text()
-    assert 'uv sync --package levanter --dev' in result
-    assert 'uv run --package levanter pytest tests/' in result
-    assert 'uv sync --package other --dev' in result
+    # Before: Generic `uv sync` and `uv run` commands
+    # After: Commands without --package get it added via regex replacement
+    expected = '\n'.join([
+        'steps:',
+        '  - name: Install dependencies',
+        '    run: uv sync --package levanter --dev',  # Added --package levanter
+        '  - name: Run tests',
+        '    run: uv run --package levanter pytest tests/',  # Added --package levanter
+        '  - name: Already has package',
+        '    run: uv sync --package other --dev',  # Unchanged (already had --package)
+        '',
+    ])
+    assert result == expected
 
 
 def test_expand_flow_style_on(tmp_path):
@@ -106,15 +116,31 @@ jobs:
     doc.save()
 
     result = yaml_file.read_text()
-
-    assert "on:" in result
-    assert "push:" in result
-    assert "branches:" in result
-    assert "- main" in result
-    assert "lib/levanter/**" in result
-    assert "pull_request:" in result
-
-    assert "\n\njobs:" in result or "\n\njobs" in result
+    # Before: on: [push, pull_request] (flow style)
+    # After: Expanded to nested structure with branches and paths
+    expected = '\n'.join([
+        'name: Run tests that use ray',
+        '',
+        'on:',
+        '  push:',
+        '    branches:',
+        '      - main',
+        '    paths:',
+        '      - lib/levanter/**',
+        '      - uv.lock',
+        '      - .github/workflows/levanter-run_ray_tests.yaml',
+        '  pull_request:',
+        '    paths:',
+        '      - lib/levanter/**',
+        '      - uv.lock',
+        '      - .github/workflows/levanter-run_ray_tests.yaml',
+        '',
+        'jobs:',  # Blank line preserved
+        '  ray_tests:',
+        '    runs-on: ubuntu-latest',
+        '',
+    ])
+    assert result == expected
 
 
 def test_add_defaults_section(tmp_path):
@@ -141,17 +167,23 @@ def test_add_defaults_section(tmp_path):
     doc.save()
 
     result = yaml_file.read_text()
-
-    assert "defaults:" in result
-    assert "run:" in result
-    assert "working-directory: lib/levanter" in result
-
-    lines = result.split('\n')
-    runs_on_idx = next(i for i, line in enumerate(lines) if 'runs-on:' in line)
-    defaults_idx = next(i for i, line in enumerate(lines) if 'defaults:' in line)
-    strategy_idx = next(i for i, line in enumerate(lines) if 'strategy:' in line)
-
-    assert runs_on_idx < defaults_idx < strategy_idx
+    # Before: job with runs-on, strategy, and steps
+    # After: defaults section inserted between runs-on and strategy
+    expected = '\n'.join([
+        'jobs:',
+        '  test:',
+        '    runs-on: ubuntu-latest',
+        '    defaults:',  # Inserted after runs-on
+        '      run:',
+        '        working-directory: lib/levanter',
+        '    strategy:',  # Existing strategy comes after
+        '      matrix:',
+        "        python-version: ['3.11']",
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '',
+    ])
+    assert result == expected
 
 
 def test_parse_path_with_array_index(tmp_path):
@@ -186,8 +218,15 @@ def test_replace_key_simple_value(tmp_path):
     doc.save()
 
     result = yaml_file.read_text()
-    assert "ubuntu-22.04" in result
-    assert "ubuntu-latest" not in result
+    # Before: runs-on: ubuntu-latest
+    # After: runs-on: ubuntu-22.04 (simple value replacement)
+    expected = '\n'.join([
+        'jobs:',
+        '  test:',
+        '    runs-on: ubuntu-22.04',  # Changed from ubuntu-latest
+        '',
+    ])
+    assert result == expected
 
 
 def test_idempotency(tmp_path):
