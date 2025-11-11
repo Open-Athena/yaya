@@ -146,6 +146,18 @@ def _convert_mapping(
         # List items: keys at parent_col. Mapping values: keys at parent_col + 2
         indent = parent_col if is_list_item else parent_col + 2
 
+    # Extract leading blank lines (blank lines after the mapping key, before first child)
+    # These appear in mapping.ca.comment[1]
+    if hasattr(mapping, 'ca') and mapping.ca.comment and mapping.ca.comment[1]:
+        leading_tokens = mapping.ca.comment[1] if isinstance(mapping.ca.comment[1], list) else [mapping.ca.comment[1]]
+        for token in leading_tokens:
+            if hasattr(token, 'value') and token.value:
+                # Check if it's blank lines (just newlines, no # character)
+                if not token.value.lstrip('\n').strip():
+                    blank_count = token.value.count('\n')
+                    if blank_count > 0:
+                        items.append(BlankLines(count=blank_count))
+
     for key, value in mapping.items():
         # Check for blank lines or comments BEFORE this key
         # ca_item structure: [before_key, between_key_value, after_value, end_of_block]
