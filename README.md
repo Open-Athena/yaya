@@ -151,28 +151,37 @@ No reformatting. No comment loss. Just the change you made.
 
 ## How It Works
 
+yaya uses a clean AST architecture for truly lossless editing:
+
 1. Parse YAML with [ruamel.yaml] to get AST + position information
-2. Convert line/column positions to byte offsets
-3. Track modifications as you change values
-4. Apply byte-level replacements when saving, leaving everything else untouched
+2. Extract formatting details (indentation, quotes, styles, blank lines) from original bytes
+3. Convert to a clean, immutable AST with all formatting metadata preserved
+4. When you make changes, track modifications in the AST
+5. Re-serialize the entire document, preserving all formatting for unchanged sections
+
+This approach guarantees byte-for-byte preservation while supporting arbitrary modifications.
 
 ## Features
 
-- Byte-for-byte preservation of unchanged content
-- String replacement (literal and regex)
-- Path-based navigation (`jobs.test.steps[0].name`)
-- Replace values or subtrees (scalars, dicts, lists, list items)
-- Add keys with proper positioning
-- Delete keys while preserving surrounding content
-- Assertions for validation (`assert_value`, `assert_present`, `assert_absent`)
-- Comment preservation
-- Block scalar support
-- Flow and block style handling
+- **Byte-for-byte preservation** of unchanged content (including blank lines within dicts)
+- **String replacement** (literal and regex)
+- **Path-based navigation** (`jobs.test.steps[0].name`)
+- **Replace values or subtrees** (scalars, dicts, lists, list items)
+- **Add keys** with order control (`add_key_after`, `insert_key_between`)
+- **Delete keys** while preserving surrounding content
+- **Assertions** for validation (`assert_value`, `assert_present`, `assert_absent`)
+- **Quote style preservation** (single, double, unquoted)
+- **Comment preservation** (inline and standalone)
+- **Block scalar support** (preserves `|`, `|-`, `|+` indicators)
+- **Flow vs block style control** (auto-detect or explicit)
+- **List indentation detection** (aligned vs indented styles)
+- **Jinja2 expression preservation** (treats as opaque strings)
 
 ## Limitations
 
 - Binary data not supported
-- Adding keys only supports `add_key_after` currently (not arbitrary positions)
+- Multi-document YAML streams not tested
+- Anchors and aliases work but aren't specifically tested
 
 ## Comparison with ruamel.yaml
 
@@ -184,9 +193,11 @@ No reformatting. No comment loss. Just the change you made.
 | Preserves most whitespace | ✅ | ✅ |
 | **Byte-for-byte identical** | ❌ | ✅ |
 | Trailing whitespace | ❌ | ✅ |
+| Blank lines within dicts | ❌ | ✅ |
 | Block scalar indicators | ❌ (computes new ones) | ✅ |
+| Quote styles | ❌ (sometimes changes) | ✅ |
 
-`yaya` uses [ruamel.yaml] under the hood but takes a different approach: instead of serializing the AST back to YAML, it modifies the original bytes directly.
+`yaya` uses [ruamel.yaml] under the hood but takes a different approach: instead of just serializing the modified AST, it extracts all formatting details from the original bytes and preserves them during re-serialization.
 
 ## License
 

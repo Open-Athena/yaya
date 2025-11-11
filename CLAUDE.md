@@ -6,11 +6,14 @@
 
 ## Key Innovation
 
-Instead of parse → modify → serialize, we:
-1. Parse YAML with ruamel.yaml to get AST + position info (`lc.data` contains line/col for every value)
-2. Convert line/col to byte offsets in the original file
-3. Track modifications as you change values
-4. Apply byte-level replacements when saving, leaving everything else untouched
+We use a clean AST architecture for truly lossless editing:
+1. Parse YAML with ruamel.yaml to get AST + position info
+2. Extract all formatting metadata (quotes, indentation, styles, blank lines) from original bytes
+3. Convert ruamel's CommentedMap/CommentedSeq to a clean, immutable AST
+4. Track modifications in the clean AST as you make changes
+5. Re-serialize the entire document, preserving all formatting for unchanged sections
+
+This guarantees byte-for-byte preservation while supporting arbitrary modifications.
 
 ## Architecture
 
@@ -18,81 +21,97 @@ Instead of parse → modify → serialize, we:
 src/yaya/
 ├── __init__.py          # Package exports
 ├── document.py          # YAYA class (main interface)
-├── byte_ops.py          # Byte/position utilities
-├── modifications.py     # ModificationTracker class
-├── serialization.py     # YAML serialization with indentation
-└── path.py              # Path parsing and navigation
+├── converter.py         # Convert ruamel AST → clean AST
+├── emitter.py           # Serialize clean AST → bytes
+├── nodes.py             # Clean AST node types (Scalar, Mapping, Sequence, etc.)
+├── extract.py           # Extract formatting from original bytes
+├── serialization.py     # ruamel.yaml wrapper for programmatic nodes
+├── path.py              # Path parsing and navigation
+├── formatting.py        # Style hints for programmatic nodes
+└── jinja2_helpers.py    # Detect/preserve Jinja2 expressions
 ```
 
-Key functions and classes:
-- `byte_ops.line_col_to_index()`: Convert (line, col) → byte offset
-- `byte_ops.find_scalar_value_range()`: Find byte range of a scalar value
-- `YAYA`: Main class
-    - `.load(file_path)`: Load YAML file
-    - `.replace_in_values(old, new)`: Bulk string replacement
-    - `.save(file_path=None)`: Save with modifications
+Key components:
+- **nodes.py**: Immutable AST nodes (Document, Mapping, Sequence, Scalar, Comment, BlankLines, etc.)
+- **converter.py**: `convert_to_clean_ast()` - Extract formatting and build clean AST
+- **emitter.py**: `serialize()` - Render clean AST to bytes with full formatting preservation
+- **extract.py**: Extract quotes, indentation, styles, offsets from original bytes
+- **YAYA class**: Main interface with dict-like access, path navigation, modifications
 
 ## Current Status
 
-### ✅ All Tests Passing (21/21)
-- ✅ Simple string replacements in plain scalars
-- ✅ Comment preservation
-- ✅ Whitespace preservation
-- ✅ Block scalar handling
-- ✅ Nested structures (mappings in sequences)
-- ✅ No-op when pattern doesn't match
-- ✅ Regex-based replacement
-- ✅ List indentation detection and configuration
+### ✅ All Tests Passing (95/95)
+- ✅ String replacements (literal and regex)
+- ✅ Comment preservation (inline and standalone)
+- ✅ Whitespace preservation (including trailing spaces)
+- ✅ Blank line preservation (including within dicts)
+- ✅ Quote style preservation (single, double, unquoted)
+- ✅ Block scalar handling with indicator preservation
+- ✅ Flow vs block style control
+- ✅ List indentation detection (aligned vs indented)
 - ✅ Path navigation and assertions
-- ✅ Key addition and replacement
+- ✅ Key addition, replacement, deletion with order control
+- ✅ Jinja2 expression preservation
 - ✅ Idempotency
-- ✅ Examples work perfectly
+- ✅ Real-world workflow transformations
 
 ## Known Issues & TODOs
 
 ### Medium Priority
 - [ ] Add yq-style path selectors with wildcards (`.jobs.test.steps[*].run`)
-- [ ] Add direct dict-like access with `__setitem__` tracking
 - [ ] Better error messages when modifications fail
-- [ ] Handle edge cases: flow-style collections, anchors/aliases, multi-document streams
+- [ ] Explicit testing for anchors/aliases, multi-document streams
 
 ### Future Enhancements
 - [ ] Callback-based value transformation
-- [ ] Preserving anchors and aliases through modifications
-- [ ] Support for removing keys (currently only adding/replacing)
+- [ ] More flexible key insertion (not just `add_key_after`, `insert_key_between`)
+- [ ] Preserve and manipulate standalone comments (not attached to keys)
 
 ## Key Files to Review
 
-1. **`src/yaya/document.py`**: Main YAYA class
-   - `replace_in_values()`: Recursively replaces strings in the AST
-   - `add_key()`, `replace_key()`, `add_key_after()`: Key manipulation
-   - `get_path()`, `assert_value()`, etc.: Path navigation and assertions
+1. **`src/yaya/document.py`**: Main YAYA class (user-facing API)
+   - `replace_in_values()`, `replace_in_values_regex()`: String replacements
+   - `add_key()`, `replace_key()`, `add_key_after()`, `insert_key_between()`, `delete_key()`: Key manipulation
+   - `get_path()`, `assert_value()`, `assert_present()`, `assert_absent()`: Navigation and assertions
+   - `ensure_key()`: Idempotent key addition
+   - `set_list_indent_style()`: Control list indentation
 
-2. **`src/yaya/modifications.py`**: ModificationTracker class
-   - `record_scalar_modification()`: Records byte positions for changed values
-   - `_format_replacement()`: Formats replacement values (handles block scalar indent)
-   - `apply_modifications()`: Applies all modifications to original bytes
+2. **`src/yaya/converter.py`**: Convert ruamel AST to clean AST
+   - `convert_to_clean_ast()`: Main entry point
+   - `_convert_mapping()`: Extract formatting from mappings (includes blank line preservation)
+   - `_convert_sequence()`: Extract formatting from sequences
+   - `_convert_scalar()`: Extract quotes and values from scalars
 
-3. **`src/yaya/byte_ops.py`**: Low-level byte operations
-   - `line_col_to_index()`: Position to byte offset conversion
-   - `find_scalar_value_range()`: Finds byte ranges of values
+3. **`src/yaya/emitter.py`**: Serialize clean AST to bytes
+   - `serialize()`: Main entry point
+   - `_emit_mapping()`, `_emit_sequence()`, `_emit_scalar()`: Per-node renderers
+   - Preserves all formatting metadata during rendering
 
-4. **`src/yaya/path.py`**: Path parsing and navigation
-   - `parse_path()`: Parses dotted paths with array indices
-   - `navigate_to_path()`: Navigates to paths in the AST
+4. **`src/yaya/nodes.py`**: Clean AST node definitions
+   - `Document`, `Mapping`, `Sequence`, `Scalar`: Core structure
+   - `Comment`, `BlankLines`, `InlineCommented`: Formatting metadata
+   - `KeyValue`: Mapping key-value pairs
+   - All nodes are immutable (NamedTuple)
 
-5. **`src/yaya/serialization.py`**: YAML serialization utilities
-   - `detect_list_indentation()`: Detects list indentation style
-   - `serialize_to_yaml()`: Serializes values with specific indentation
+5. **`src/yaya/extract.py`**: Extract formatting from original bytes
+   - `extract_quote_style()`: Detect single/double/plain quotes
+   - `extract_indentation()`: Find indentation at line
+   - `extract_mapping_style()`, `extract_sequence_style()`: Flow vs block
+   - `extract_sequence_offset()`: List dash offset
 
-6. **`tests/`**: Comprehensive test suite
-   - `test_basic.py`: Core functionality tests
-   - `test_list_indentation.py`: List indentation tests
-   - `test_workflow_transforms.py`: Real-world workflow transformation tests
+6. **`src/yaya/path.py`**: Path parsing and navigation
+   - `parse_path()`: Parse dotted paths with array indices
+   - `navigate_to_path()`: Navigate in ruamel AST
 
-7. **`examples/`**: Usage examples
-   - `basic.py`: Simple example
-   - `github_actions.py`: Real-world use case for updating paths in workflows
+7. **`tests/`**: Comprehensive test suite (95 tests)
+   - `test_basic.py`: Core functionality
+   - `test_blank_lines.py`: Blank line preservation (NEW in 0.3.0)
+   - `test_quote_preservation.py`: Quote style handling
+   - `test_list_indentation.py`: List indent detection
+   - `test_style_hints.py`: Flow vs block style control
+   - `test_workflow_transforms.py`: Real-world transformations
+   - `test_jinja2_expressions.py`: Jinja2 preservation
+   - Plus many more specialized tests
 
 ## Debugging Tips
 
